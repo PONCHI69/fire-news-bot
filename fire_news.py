@@ -35,7 +35,7 @@ def fetch_and_filter(rss_url, prefix, is_global=False):
         exclude_keywords = [
             "警告", "宣導", "提醒", "呼籲", "司法", "程序", "律師", "災民", "善後",
             "家", "屋", "House", "Garage", "Home", "Apartment", "Residential", # 排除家庭/民宅
-            "買氣", "效能", "股市", "個資", "秘密", "名單", "熱度"
+            "買氣", "效能", "股市", "個資", "秘密", "名單", "熱度","雜草","野草"
         ]
         
         for item in soup.find_all('item')[:15]:
