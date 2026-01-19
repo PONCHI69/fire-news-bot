@@ -20,7 +20,7 @@ def fetch_and_filter(rss_url, prefix):
         # 這是我們認可的「真火警」關鍵字
         valid_keywords = ["火","洩漏", "爆炸", "氣爆", "火警", "火燒", "焚毀", "Fire", "Explosion"]
         # 這是我們要排除的「無關」關鍵字（例如：買氣爆炸、效能爆炸）
-        exclude_keywords = ["買氣", "效能", "票房", "熱度", "股市"]
+        exclude_keywords = ["買氣", "效能", "票房", "熱度", "股市","選情","參選","樂透"]
         
         for item in soup.find_all('item')[:10]:
             title = item.title.text
