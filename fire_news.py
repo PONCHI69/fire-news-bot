@@ -27,7 +27,7 @@ def fetch_and_filter(rss_url, prefix):
         # 額外加入：秘密、隱私、名單 (預防洩漏類誤報)
         exclude_keywords = [
             "買氣", "效能", "票房", "熱度", "股市", "選情", "參選", 
-            "樂透", "秘密", "隱私", "名單", "個資"
+            "樂透", "秘密", "隱私", "名單", "個資","模擬"
         ]
         
         for item in soup.find_all('item')[:10]:
