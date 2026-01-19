@@ -59,11 +59,11 @@ if __name__ == "__main__":
     print("--- 啟動 AI 翻譯精準監測系統 ---")
     
     # 1. 台灣與兩岸搜尋
-    tw_url = "https://news.google.com/rss/search?q=火災+OR+爆炸+OR+火警+when:1h&hl=zh-TW&gl=TW&ceid=TW:zh-tw"
+    tw_url = "https://news.google.com/rss/search?q=火災+OR+爆炸+OR+火警+when:12h&hl=zh-TW&gl=TW&ceid=TW:zh-tw"
     fetch_and_filter(tw_url, "🇹🇼 **台灣/兩岸即時火警**")
     
     # 2. 全球英文搜尋 (會自動翻譯成中文)
-    global_url = "https://news.google.com/rss/search?q=Fire+OR+Explosion+when:1h&hl=en-US&gl=US&ceid=US:en"
+    global_url = "https://news.google.com/rss/search?q=Fire+OR+Explosion+when:12h&hl=en-US&gl=US&ceid=US:en"
     fetch_and_filter(global_url, "🌍 **全球重大警報 (自動翻譯)**", is_global=True)
     
     print("--- 監測結束 ---")
