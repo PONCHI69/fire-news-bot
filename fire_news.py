@@ -6,9 +6,16 @@ DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK")
 
 def send_to_discord(title, link, prefix):
     # 簡化格式，避免傳送冗長的 Google News 介紹文字
+    def send_to_discord(title, link, prefix):
+    # 【測試模式】：不發送到 Discord，改為顯示在 GitHub 日誌中
+    print(f"--- 測試抓取成功 ---")
+    print(f"標籤: {prefix}")
+    print(f"標題: {title}")
+    print(f"連結: {link}")
+    print(f"------------------")
     payload = {"content": f"{prefix}\n**{title}**\n🔗 {link}"}
     try:
-        requests.post(DISCORD_WEBHOOK_URL, json=payload)
+        #requests.post(DISCORD_WEBHOOK_URL, json=payload)
     except:
         pass
 
