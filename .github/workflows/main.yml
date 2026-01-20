@@ -2,32 +2,42 @@ name: Fire News Bot
 
 on:
   schedule:
-    # 這裡設定在 UTC 時間 23:00, 04:00, 12:00 執行
-    # 對應台灣時間 (UTC+8) 為 07:00, 12:00, 20:00
-    - cron: '0 23,4,12 * * *'
-  workflow_dispatch:
+    # 1. 台灣時間 07:00 (UTC 23:00 前一天)
+    - cron: '0 23 * * *'
+    # 2. 台灣時間 12:00 (UTC 04:00)
+    - cron: '0 4 * * *'
+    # 3. 台灣時間 19:00 (UTC 11:00)
+    - cron: '0 11 * * *'
+  workflow_dispatch: # 保留手動執行按鈕
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write 
     steps:
-      - name: 複製程式碼
+      - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: 安裝 Python
+      - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-          # 注意：這裡把 cache: 'pip' 那行刪除了，避免它報錯
 
-      - name: 安裝爬蟲工具
-        run: |
-          python -m pip install --upgrade pip
-          pip install requests beautifulsoup4 lxml
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4 lxml
 
-      - name: 執行爬蟲程式
+      - name: Run Crawler
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: python fire_news.py
+
+      - name: Save memory (seen_events.txt)
         run: |
-          export TZ='Asia/Taipei'
-          python fire_news.py
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          # 如果檔案不存在就建立，避免報錯
+          touch seen_events.txt
+          git add seen_events.txt
+          git commit -m "Update seen events" || exit 0
+          git push
