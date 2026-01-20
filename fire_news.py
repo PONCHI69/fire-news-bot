@@ -44,11 +44,11 @@ if __name__ == "__main__":
     print("--- 啟動精密過濾測試 (不發送 Discord) ---")
     
     # 台灣區精確搜尋
-    tw_url = "https://news.google.com/rss/search?q=工廠+(火災+OR+爆炸+OR+火警)+when:1h&hl=zh-TW&gl=TW&ceid=TW:zh-tw"
+    tw_url = "https://news.google.com/rss/search?q=工廠+(火災+OR+爆炸+OR+火警)+when:8h&hl=zh-TW&gl=TW&ceid=TW:zh-tw"
     fetch_and_filter(tw_url, "🏭 **工業/工廠火警報告**")
     
     # 全球區精確搜尋
-    global_url = "https://news.google.com/rss/search?q=(factory+OR+industrial)+(fire+OR+explosion)+when:1h&hl=zh-TW&gl=TW&ceid=TW:zh-tw"
+    global_url = "https://news.google.com/rss/search?q=(factory+OR+industrial)+(fire+OR+explosion)+when:8h&hl=zh-TW&gl=TW&ceid=TW:zh-tw"
     fetch_and_filter(global_url, "🌍 **全球工業警報 (AI翻譯)**")
     
     print("--- 測試結束 ---")
