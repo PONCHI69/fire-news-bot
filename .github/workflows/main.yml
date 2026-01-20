@@ -2,13 +2,11 @@ name: Fire News Bot
 
 on:
   schedule:
-    # 1. 台灣時間 07:00 (UTC 23:00 前一天)
+    # 台灣 07:00 (UTC 23:00 前一天)
     - cron: '0 23 * * *'
-    # 2. 台灣時間 12:00 (UTC 04:00)
-    - cron: '0 4 * * *'
-    # 3. 台灣時間 19:00 (UTC 11:00)
+    # 台灣 19:00 (UTC 11:00)
     - cron: '0 11 * * *'
-  workflow_dispatch: # 保留手動執行按鈕
+  workflow_dispatch:
 
 jobs:
   build:
@@ -32,12 +30,11 @@ jobs:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: python fire_news.py
 
-      - name: Save memory (seen_events.txt)
+      - name: Commit Memory
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          # 如果檔案不存在就建立，避免報錯
           touch seen_events.txt
           git add seen_events.txt
-          git commit -m "Update seen events" || exit 0
+          git commit -m "Update history" || exit 0
           git push
