@@ -36,4 +36,9 @@ REGION_RULES = {
 }
 
 SEVERITY_RULES = [
-    (5, ["多人死亡", "at least", "killed", "dead", "fatal"])
+    (5, ["多人死亡", "at least", "killed", "dead", "fatal"]),
+    (4, ["死亡", "身亡"]),
+    (3, ["受傷", "injured", "wounded"]),
+    (2, ["爆炸", "explosion"]),
+    (1, ["火災", "fire", "blaze"]),
+]
