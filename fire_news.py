@@ -65,7 +65,7 @@ def run_monitor():
                 if check_match(title) and not is_duplicate(title, link):
                     severity = get_severity(title)
                     # 組合訊息
-                    message = f"{prefix}\n**【{severity}】**\n{title}\n🔗 {link}"
+                    message = f"{prefix}\n**【{severity}】**\n{title}\n🔗 <{link}>"
                     requests.post(DISCORD_WEBHOOK_URL, json={"content": message})
                     save_event(title, link)
         except Exception as e:
