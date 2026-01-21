@@ -11,7 +11,7 @@ SEEN_FILE = "seen_events.txt"  # 建議改回文字檔，在 GitHub Actions 存�
 
 FIRE_KEYWORDS = ["fire", "blaze", "火災", "火警", "起火", "燒毀"]
 EXPLOSION_KEYWORDS = ["explosion", "爆炸", "氣爆"]
-FACILITY_KEYWORDS = ["factory", "plant", "mill", "refinery", "warehouse", "工廠", "廠房", "倉儲", "工業"]
+FACILITY_KEYWORDS = ["factory", "plant", "mill", "refinery", "warehouse", "工廠", "廠房", "倉儲", "工業","公司"，"科技"，"電子"，"廠"]
 EXCLUDE_KEYWORDS = ["遊戲", "steam", "限免", "模擬器", "大亨", "缺工", "關稅", "股市", "講座", "論壇"]
 
 # =========================
@@ -50,8 +50,8 @@ def get_severity(title):
 # =========================
 def run_monitor():
     urls = [
-        ("https://news.google.com/rss/search?q=\"工廠\"+(火災+OR+爆炸+OR+火警)+when:12h&hl=zh-TW&gl=TW&ceid=TW:zh-tw", "🏭 工業/工廠情報"),
-        ("https://news.google.com/rss/search?q=(\"factory\"+OR+\"industrial\")+(fire+OR+explosion)+when:12h&hl=zh-TW&gl=TW&ceid=TW:zh-tw", "🌍 全球工業警報")
+        ("https://news.google.com/rss/search?q=\"工廠\"+(火災+OR+爆炸+OR+火警)+when:24h&hl=zh-TW&gl=TW&ceid=TW:zh-tw", "🏭 工業/工廠情報"),
+        ("https://news.google.com/rss/search?q=(\"factory\"+OR+\"industrial\")+(fire+OR+explosion)+when:24h&hl=zh-TW&gl=TW&ceid=TW:zh-tw", "🌍 全球工業警報")
     ]
 
     for rss_url, prefix in urls:
