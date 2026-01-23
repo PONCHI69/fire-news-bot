@@ -88,5 +88,3 @@ def run_monitor():
                         f"[{title}](<{link}>)\n"
                         f"🕒 原始發布時間 (TW): `{tw_time_str}`"
                     )
-                    requests.post(DISCORD_WEBHOOK_URL, json={"content": message})
-                    save_event(title, link)
