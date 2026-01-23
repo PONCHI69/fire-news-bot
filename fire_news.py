@@ -82,6 +82,9 @@ def run_monitor():
                 if check_match(title) and not is_duplicate(title, link):
                     severity = get_severity(title)
                     # 組合訊息：加入時間戳記 (使用 Discord 的程式碼區塊語法讓時間更顯眼)
-                    message = (
-                        f"{prefix}\n"
-                        f"**
+                   message = (
+                       f"{prefix}\n"
+                       f"**【{severity}】**\n"
+                       f"[{title}](<{link}>)\n"
+                       f"🕒 原始發布時間 (TW): `{tw_time_str}`"
+                    )
