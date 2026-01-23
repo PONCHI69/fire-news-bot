@@ -43,17 +43,11 @@ def save_event(title, link):
 
 def check_match(title, is_global=False):
     t = title.lower()
-    # 優先排除黑名單
     if any(k in t for k in EXCLUDE_KEYWORDS): return False
-    
-    # 判斷是否含有火災/爆炸動作
     has_event = any(k in t for k in FIRE_KEYWORDS + EXPLOSION_KEYWORDS)
-    
     if is_global:
-        # 國外新聞放寬：只要有事件動詞且不在黑名單就通過
-        return has_event
+        return has_event  # 全球新聞放寬限制
     else:
-        # 國內新聞：必須同時包含事件動詞與設施地點
         has_place = any(k in t for k in FACILITY_KEYWORDS)
         return has_event and has_place
 
@@ -95,7 +89,7 @@ def run_monitor():
             res = requests.get(rss_url, headers=HEADERS, timeout=15)
             soup = BeautifulSoup(res.content, features="xml")
             
-            # 建立分類旗標，確保標籤文字與 URLs 定義完全一致
+            # 全球分類標籤旗標
             is_global = (prefix == "🌍全球火警")
             
             for item in soup.find_all('item')[:20]:
@@ -104,18 +98,14 @@ def run_monitor():
                 pub_date = item.pubDate.text if item.pubDate else ""
                 tw_time = parse_time(pub_date)
 
-                # 傳入分類旗標決定過濾嚴格度
                 if check_match(title, is_global) and not is_duplicate(title, link):
-                    # 組合訊息前先計算嚴重程度
                     severity = get_severity(title)
                     display_title = title
                     
-                    # 僅針對全球火警執行自動翻譯
                     if is_global:
                         translated = translate_to_zh(title)
                         display_title = f"{title}\n📝 翻譯: {translated}"
                     
-                    # 組合最終訊息格式
                     message = (
                         f"{prefix}\n"
                         f"**【{severity}】**\n"
