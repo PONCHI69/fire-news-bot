@@ -2,17 +2,17 @@ name: Fire News Bot
 
 on:
   schedule:
-    # 台灣 07:00 (UTC 23:00 前一天)
-    - cron: '0 23 * * *'
-    # 台灣 19:00 (UTC 11:00)
-    - cron: '0 11 * * *'
-  workflow_dispatch:
+    # 這裡設定為每 4 小時（第 0 分鐘）執行一次
+    # 分別會在 UTC 00, 04, 08, 12, 16, 20 執行
+    # 對應台灣時間 (UTC+8) 為 08, 12, 16, 20, 00, 04
+    - cron: '0 */4 * * *'
+  workflow_dispatch: # 保留手動執行的按鈕
 
 jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: write 
+      contents: write # 確保機器人有權限將 seen_events.txt 推送回儲存庫
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -36,5 +36,6 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           touch seen_events.txt
           git add seen_events.txt
-          git commit -m "Update history" || exit 0
+          # 只有在檔案有變動時才提交，避免無意義的提交紀錄
+          git commit -m "自動更新火警歷史紀錄" || exit 0
           git push
