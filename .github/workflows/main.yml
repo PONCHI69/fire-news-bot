@@ -2,16 +2,21 @@ name: Fire News Bot
 
 on:
   schedule:
-    # 每 2 小時執行一次 (UTC 00:05, 02:05, 04:05... 以此類推)
-    # 對應台灣時間 (UTC+8) 為：08:05, 10:05, 12:05, 14:05, 16:05, 18:05, 20:05, 22:05, 00:05, 02:05, 04:05, 06:05
+    # 即時監控：每 2 小時一次
     - cron: '5 */2 * * *'
-  workflow_dispatch: # 保留手動執行的按鈕
+    # 每日摘要：每天 UTC 23:10（台灣時間 07:10）
+    - cron: '10 23 * * *'
+  workflow_dispatch:
 
 jobs:
-  build:
+  realtime:
+    name: 🔥 Realtime Fire Monitor
     runs-on: ubuntu-latest
+    # 只在「每 2 小時」或手動觸發時跑
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '5 */2 * * *'
     permissions:
-      contents: write # 確保機器人有權限將 seen_events.txt 推送回儲存庫
+      contents: write
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -24,17 +29,52 @@ jobs:
       - name: Install dependencies
         run: pip install requests beautifulsoup4 lxml
 
-      - name: Run Crawler
+      - name: Run realtime crawler
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          MODE: realtime
         run: python fire_news.py
 
-      - name: Commit Memory
+      - name: Commit seen events
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           touch seen_events.txt
           git add seen_events.txt
-          # 只有在檔案有變動時才提交，避免無意義的提交紀錄
-          git commit -m "自動更新火警歷史紀錄" || exit 0
+          git commit -m "update seen events (realtime)" || exit 0
+          git push
+
+  summary:
+    name: 📰 Daily Summary Report
+    runs-on: ubuntu-latest
+    # 只在「每日摘要時間」或手動觸發時跑
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '10 23 * * *'
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4 lxml
+
+      - name: Run summary mode
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          MODE: summary
+        run: python fire_news.py
+
+      - name: Commit summary memory
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          touch seen_events.txt
+          git add seen_events.txt
+          git commit -m "update seen events (summary)" || exit 0
           git push
