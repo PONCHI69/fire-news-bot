@@ -154,11 +154,12 @@ def run_monitor():
 
                 severity = get_severity(title)
                 time_str = parse_time(pub_date)
-
-                display_title = title
+            
                 if is_global:
-                    display_title += f"\n📝 翻譯：{translate_to_zh(title)}"
-
+                    display_title = translate_to_zh(title)
+                else:
+                    display_title = title
+                    
                 message = (
                     f"{prefix}\n"
                     f"**【{severity}】**\n"
