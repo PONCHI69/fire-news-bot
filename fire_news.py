@@ -3,179 +3,170 @@ from bs4 import BeautifulSoup
 import hashlib
 import os
 from datetime import datetime, timedelta
-import sys
+import re
 
 # =========================
-# 基本設定
+# Discord Webhooks
 # =========================
-DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK")
+WEBHOOK_GENERAL = os.getenv("DISCORD_WEBHOOK_GENERAL")
+WEBHOOK_CHEMICAL = os.getenv("DISCORD_WEBHOOK_CHEMICAL")
+WEBHOOK_ENERGY = os.getenv("DISCORD_WEBHOOK_ENERGY")
+
 SEEN_FILE = "seen_events.txt"
+SUMMARY_FILE = "daily_summary.txt"
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 # =========================
 # 關鍵字設定
 # =========================
-FIRE_KEYWORDS = [
-    "fire", "blaze", "火災", "火警", "起火", "燒毀", "失火", "救災",
-    "鋰電池", "太陽能", "儲能"
+FIRE = ["fire", "blaze", "火災", "火警", "起火", "失火"]
+EXPLOSION = ["explosion", "爆炸", "氣爆"]
+
+CHEMICAL = ["chemical", "petrochemical", "refinery", "石化", "化工", "煉油", "油庫"]
+ENERGY = ["power", "plant", "電廠", "變電所", "儲能", "太陽能", "鋰電池"]
+
+EXCLUDE = [
+    "演練", "模擬", "演習", "訓練", "simulation", "drill", "exercise",
+    "遊戲", "steam", "股市", "論壇", "活動"
 ]
 
-EXPLOSION_KEYWORDS = [
-    "explosion", "爆炸", "氣爆", "洩漏", "噴出"
-]
-
-FACILITY_KEYWORDS = [
-    "factory", "plant", "mill", "refinery", "warehouse",
-    "工廠", "廠房", "倉儲", "工業", "廠", "倉庫",
-    "公司", "科技", "電子", "園區", "作業",
-    "化工", "石化", "煉油", "油庫", "電廠",
-    "中油", "台塑", "變電所", "大樓"
-]
-
-EXCLUDE_KEYWORDS = [
-    "演練", "模擬", "演習", "訓練", "宣導", "預防",
-    "simulation", "drill", "exercise",
-    "遊戲", "steam", "模擬器",
-    "股市", "營收", "房市", "論壇", "講座", "研討會",
-    "活動"
-]
+COUNTRY_MAP = {
+    "japan": "🇯🇵", "tokyo": "🇯🇵",
+    "us": "🇺🇸", "u.s.": "🇺🇸", "america": "🇺🇸",
+    "germany": "🇩🇪", "berlin": "🇩🇪",
+    "uk": "🇬🇧", "london": "🇬🇧",
+    "canada": "🇨🇦",
+    "india": "🇮🇳",
+    "china": "🇨🇳",
+    "taiwan": "🇹🇼"
+}
 
 # =========================
-# 工具函式
+# 基礎工具
 # =========================
-def ensure_seen_file():
-    if not os.path.exists(SEEN_FILE):
-        open(SEEN_FILE, "w").close()
+def sha(text):
+    return hashlib.sha256(text.encode()).hexdigest()
 
-def event_key(title, link):
-    return hashlib.sha256(f"{title}{link}".encode("utf-8")).hexdigest()
+def load_set(path):
+    if not os.path.exists(path):
+        return set()
+    with open(path) as f:
+        return set(f.read().splitlines())
 
-def is_duplicate(title, link):
-    ensure_seen_file()
-    with open(SEEN_FILE, "r") as f:
-        return event_key(title, link) in f.read().splitlines()
+def save_set(path, s):
+    with open(path, "w") as f:
+        f.write("\n".join(s))
 
-def save_event(title, link):
-    ensure_seen_file()
-    with open(SEEN_FILE, "a") as f:
-        f.write(event_key(title, link) + "\n")
+SEEN = load_set(SEEN_FILE)
+SUMMARY = load_set(SUMMARY_FILE)
 
-def check_match(title, is_global=False):
+# =========================
+# 核心邏輯
+# =========================
+def is_real_incident(title):
     t = title.lower()
-
-    if any(k.lower() in t for k in EXCLUDE_KEYWORDS):
+    if any(k in t for k in EXCLUDE):
         return False
+    return any(k in t for k in FIRE + EXPLOSION)
 
-    has_event = any(k.lower() in t for k in FIRE_KEYWORDS + EXPLOSION_KEYWORDS)
-    if not has_event:
-        return False
+def incident_fingerprint(title):
+    key = re.sub(r"[^a-zA-Z\u4e00-\u9fff]", "", title.lower())
+    return sha(key[:40])
 
-    if is_global:
-        return True
+def detect_country(title, link):
+    text = (title + " " + link).lower()
+    for k, flag in COUNTRY_MAP.items():
+        if k in text:
+            return flag
+    return "🌍"
 
-    return any(k.lower() in t for k in FACILITY_KEYWORDS)
-
-def get_severity(title):
+def classify_channel(title):
     t = title.lower()
-    if any(k in t for k in ["dead", "killed", "fatal", "死亡", "身亡"]):
-        return "🚨 重大傷亡"
-    if any(k in t for k in ["injured", "受傷"]):
-        return "⚠️ 有人受傷"
-    if any(k in t for k in EXPLOSION_KEYWORDS):
-        return "💥 發生爆炸"
-    return "🔥 火警通報"
+    if any(k in t for k in CHEMICAL):
+        return "CHEMICAL"
+    if any(k in t for k in ENERGY):
+        return "ENERGY"
+    return "GENERAL"
 
-def parse_time(date_str):
+def webhook_by_channel(ch):
+    return {
+        "CHEMICAL": WEBHOOK_CHEMICAL,
+        "ENERGY": WEBHOOK_ENERGY,
+        "GENERAL": WEBHOOK_GENERAL
+    }.get(ch)
+
+def parse_time(pub):
     try:
-        gmt = datetime.strptime(date_str, "%a, %d %b %Y %H:%M:%S %Z")
-        tw = gmt + timedelta(hours=8)
-        return tw.strftime("%Y-%m-%d %H:%M")
-    except Exception:
-        return "未知時間"
+        gmt = datetime.strptime(pub, "%a, %d %b %Y %H:%M:%S %Z")
+        return (gmt + timedelta(hours=8)).strftime("%Y-%m-%d %H:%M")
+    except:
+        return "未知"
 
-def translate_to_zh(text):
-    try:
-        res = requests.get(
-            "https://translate.googleapis.com/translate_a/single",
-            params={
-                "client": "gtx",
-                "sl": "auto",
-                "tl": "zh-TW",
-                "dt": "t",
-                "q": text
-            },
-            timeout=10
-        )
-        return res.json()[0][0][0]
-    except Exception:
-        return "（翻譯失敗）"
-
-def send_to_discord(message):
-    if not DISCORD_WEBHOOK_URL:
-        print("❌ 未設定 DISCORD_WEBHOOK，已略過發送")
-        return
-    requests.post(DISCORD_WEBHOOK_URL, json={"content": message}, timeout=10)
+def send(webhook, msg):
+    if webhook:
+        requests.post(webhook, json={"content": msg}, timeout=10)
 
 # =========================
-# 主流程
+# 即時監測
 # =========================
-def run_monitor():
-    if not DISCORD_WEBHOOK_URL:
-        print("⚠️ 警告：未設定 DISCORD_WEBHOOK，僅顯示 log")
-
+def run_realtime():
     feeds = [
-        (
-            "https://news.google.com/rss/search?q=(工廠+OR+廠房+OR+工業區+OR+化工+OR+科技+OR+電子)+(火災+OR+爆炸+OR+火警+OR+起火)+when:12h&hl=zh-TW&gl=TW&ceid=TW:zh-tw",
-            "🏭 工廠情報",
-            False
-        ),
-        (
-            "https://news.google.com/rss/search?q=(factory+OR+industrial+OR+refinery)+(fire+OR+explosion)+when:12h&hl=en&gl=US&ceid=US:en",
-            "🌍 全球工業事故",
-            True
-        )
+        "https://news.google.com/rss/search?q=(factory+OR+industrial+OR+refinery)+(fire+OR+explosion)+when:12h&hl=en&gl=US&ceid=US:en"
     ]
 
-    for rss_url, prefix, is_global in feeds:
-        print(f"🔍 抓取：{prefix}")
-        try:
-            res = requests.get(rss_url, headers=HEADERS, timeout=15)
-            soup = BeautifulSoup(res.content, "xml")
+    for url in feeds:
+        soup = BeautifulSoup(requests.get(url, headers=HEADERS).content, "xml")
+        for item in soup.find_all("item")[:30]:
+            title = item.title.text
+            link = item.link.text
+            pub = item.pubDate.text if item.pubDate else ""
 
-            for item in soup.find_all("item")[:20]:
-                title = item.title.text.strip()
-                link = item.link.text.strip()
-                pub_date = item.pubDate.text if item.pubDate else ""
+            if not is_real_incident(title):
+                continue
 
-                if not check_match(title, is_global):
-                    continue
-                if is_duplicate(title, link):
-                    continue
+            fp = incident_fingerprint(title)
+            if fp in SEEN:
+                SUMMARY.add(fp)
+                continue
 
-                severity = get_severity(title)
-                time_str = parse_time(pub_date)
-            
-                if is_global:
-                    display_title = translate_to_zh(title)
-                else:
-                    display_title = title
-                    
-                message = (
-                    f"{prefix}\n"
-                    f"**【{severity}】**\n"
-                    f"[{display_title}](<{link}>)\n"
-                    f"🕒 原始發布時間 (TW)：`{time_str}`"
-                )
+            flag = detect_country(title, link)
+            channel = classify_channel(title)
+            webhook = webhook_by_channel(channel)
 
-                send_to_discord(message)
-                save_event(title, link)
-                print(f"✅ 已通報：{title}")
+            msg = (
+                f"{flag} **全球工業事故**\n"
+                f"🔥 `{channel}`\n"
+                f"[{title}](<{link}>)\n"
+                f"🕒 `{parse_time(pub)}`"
+            )
 
-        except Exception as e:
-            print(f"❌ 抓取失敗：{e}")
+            send(webhook, msg)
+            SEEN.add(fp)
+            SUMMARY.add(fp)
+
+    save_set(SEEN_FILE, SEEN)
+    save_set(SUMMARY_FILE, SUMMARY)
+
+# =========================
+# 每日摘要（cron 用）
+# =========================
+def run_daily_summary():
+    if not SUMMARY:
+        return
+
+    msg = "🗞 **24h 工業事故摘要**\n"
+    msg += f"共 {len(SUMMARY)} 起已合併事故"
+
+    send(WEBHOOK_GENERAL, msg)
+    SUMMARY.clear()
+    save_set(SUMMARY_FILE, SUMMARY)
 
 # =========================
 # 入口
 # =========================
 if __name__ == "__main__":
-    run_monitor()
+    mode = os.getenv("MODE", "realtime")
+    if mode == "summary":
+        run_daily_summary()
+    else:
+        run_realtime()
