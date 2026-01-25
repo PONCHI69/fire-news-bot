@@ -80,17 +80,20 @@ EXCLUDE += ["稅收", "股價", "財報", "營收", "總統", "選戰", "政策"
 def is_real_incident(title):
     t = title.lower()
     
-    # 第一步：排除特定的政治、財經、宣導詞彙
+    # 1. 優先排除：標題若包含任何政經或排除詞彙，直接淘汰
     if any(k in t for k in EXCLUDE):
         return False
         
-    # 第二步：核心判斷——標題必須明確包含火災或爆炸相關詞彙
-    # 同時排除「防火」、「預防火災」等非事故詞彙
+    # 2. 真實性檢查：必須含有明確的火警詞彙
     has_event = any(k in t for k in FIRE + EXPLOSION)
-    is_prevention = any(k in t for k in ["防火", "預防", "宣導", "安全裝備"])
     
-    # 只有當標題包含火災關鍵字，且不是「預防性質」的新聞時才通過
-    return has_event and not is_prevention
+    # 3. 語意排除：排除掉「點燃趨勢」、「點燃希望」等比喻用法
+    is_metaphor = any(k in t for k in ["點燃蘋果", "點燃市場", "點燃趨勢"])
+    
+    # 4. 防火宣導排除
+    is_prevention = any(k in t for k in ["防火", "預防", "宣導", "平安符"])
+    
+    return has_event and not is_metaphor and not is_prevention
 
 def incident_fingerprint(title):
     key = re.sub(r"[^a-zA-Z\u4e00-\u9fff]", "", title.lower())
