@@ -73,15 +73,24 @@ def translate_to_zh(text):
 
 SEEN = load_set(SEEN_FILE)
 SUMMARY = load_set(SUMMARY_FILE)
-
+EXCLUDE += ["稅收", "股價", "財報", "營收", "總統", "選戰", "政策", "稅率", "投資", "收購"]
 # =========================
 # 核心邏輯
 # =========================
 def is_real_incident(title):
     t = title.lower()
+    
+    # 第一步：排除特定的政治、財經、宣導詞彙
     if any(k in t for k in EXCLUDE):
         return False
-    return any(k in t for k in FIRE + EXPLOSION)
+        
+    # 第二步：核心判斷——標題必須明確包含火災或爆炸相關詞彙
+    # 同時排除「防火」、「預防火災」等非事故詞彙
+    has_event = any(k in t for k in FIRE + EXPLOSION)
+    is_prevention = any(k in t for k in ["防火", "預防", "宣導", "安全裝備"])
+    
+    # 只有當標題包含火災關鍵字，且不是「預防性質」的新聞時才通過
+    return has_event and not is_prevention
 
 def incident_fingerprint(title):
     key = re.sub(r"[^a-zA-Z\u4e00-\u9fff]", "", title.lower())
