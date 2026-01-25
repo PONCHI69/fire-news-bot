@@ -57,6 +57,18 @@ def save_set(path, s):
     with open(path, "w") as f:
         f.write("\n".join(s))
 
+def translate_to_zh(text):
+    """將標題翻譯為中文"""
+    try:
+        res = requests.get(
+            "https://translate.googleapis.com/translate_a/single",
+            params={"client": "gtx", "sl": "auto", "tl": "zh-TW", "dt": "t", "q": text}, 
+            timeout=10
+        )
+        return res.json()[0][0][0]
+    except:
+        return text # 翻譯失敗則回傳原標題
+
 SEEN = load_set(SEEN_FILE)
 SUMMARY = load_set(SUMMARY_FILE)
 
@@ -115,40 +127,46 @@ def run_realtime():
     ]
 
     for url in feeds:
-        soup = BeautifulSoup(requests.get(url, headers=HEADERS).content, "xml")
-        for item in soup.find_all("item")[:30]:
-            title = item.title.text
-            link = item.link.text
-            pub = item.pubDate.text if item.pubDate else ""
+        try:
+            soup = BeautifulSoup(requests.get(url, headers=HEADERS, timeout=15).content, "xml")
+            for item in soup.find_all("item")[:30]:
+                title = item.title.text
+                link = item.link.text
+                pub = item.pubDate.text if item.pubDate else ""
 
-            if not is_real_incident(title):
-                continue
+                if not is_real_incident(title):
+                    continue
 
-            fp = incident_fingerprint(title)
-            if fp in SEEN:
+                fp = incident_fingerprint(title)
+                if fp in SEEN:
+                    SUMMARY.add(fp)
+                    continue
+
+                flag = detect_country(title, link)
+                channel = classify_channel(title)
+                webhook = webhook_by_channel(channel)
+
+                # 國際新聞執行翻譯，台灣新聞維持原標題
+                display_title = translate_to_zh(title) if flag != "🇹🇼" else title
+
+                msg = (
+                    f"{flag} **全球工業事故**\n"
+                    f"🔥 `{channel}`\n"
+                    f"[{display_title}](<{link}>)\n"
+                    f"🕒 `{parse_time(pub)}`"
+                )
+
+                send(webhook, msg)
+                SEEN.add(fp)
                 SUMMARY.add(fp)
-                continue
-
-            flag = detect_country(title, link)
-            channel = classify_channel(title)
-            webhook = webhook_by_channel(channel)
-
-            msg = (
-                f"{flag} **全球工業事故**\n"
-                f"🔥 `{channel}`\n"
-                f"[{title}](<{link}>)\n"
-                f"🕒 `{parse_time(pub)}`"
-            )
-
-            send(webhook, msg)
-            SEEN.add(fp)
-            SUMMARY.add(fp)
+        except Exception as e:
+            print(f"錯誤: {e}")
 
     save_set(SEEN_FILE, SEEN)
     save_set(SUMMARY_FILE, SUMMARY)
 
 # =========================
-# 每日摘要（cron 用）
+# 每日摘要
 # =========================
 def run_daily_summary():
     if not SUMMARY:
