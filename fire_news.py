@@ -169,6 +169,7 @@ def run_realtime():
                 fp = incident_fingerprint(title)
                 if fp in SEEN:
                     SUMMARY.add(fp)
+                    print(f"跳過重複新聞: {title[:30]}...")  # <-- 加入這一行
                     continue
 
                 flag = detect_country(title, link)
