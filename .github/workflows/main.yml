@@ -37,8 +37,11 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          # 確保 json 與 txt 檔案都存在，避免 git add 失敗
+          # 1. 確保檔案存在
           touch seen_events.json daily_summary.txt
+          # 2. 先抓取最新遠端紀錄，避免衝突
+          git pull origin main --rebase
+          # 3. 推送更新
           git add seen_events.json daily_summary.txt
-          git commit -m "Update history (enhanced fingerprint & noise filter)" || exit 0
+          git commit -m "Update history (resolved conflict)" || exit 0
           git push
