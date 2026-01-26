@@ -72,11 +72,16 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          # 1. 確保檔案存在
-          touch seen_events.json daily_summary.txt
-          # 2. 先拉取遠端最新變更，解決 fetch first 的衝突
-          git pull origin main --rebase
-          # 3. 推送更新後的紀錄
+          
+          # 先將本地變更暫存，確保 pull --rebase 能成功執行
           git add seen_events.json daily_summary.txt
-          git commit -m "Update history (resolved syntax & sync)" || exit 0
+          git stash
+          
+          # 強制拉取遠端最新紀錄並合併
+          git pull origin main --rebase
+          
+          # 取回本地變更並推送
+          git stash pop || exit 0
+          git add seen_events.json daily_summary.txt
+          git commit -m "Fix syntax and enforce event de-duplication" || exit 0
           git push
