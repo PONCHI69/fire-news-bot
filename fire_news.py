@@ -81,6 +81,14 @@ def incident_fingerprint(title):
     normalized = normalize_event_text(title)
     return sha(normalized)
 
+def detect_country(title, link):
+    """根據標題或連結偵測國家，並回傳國旗圖示"""
+    text = (title + " " + link).lower()
+    for k, flag in COUNTRY_MAP.items():
+        if k in text:
+            return flag
+    return "🌍"
+
 def is_real_incident(title):
     t = title.lower()
     if any(k in t for k in EXCLUDE): return False
