@@ -1,5 +1,7 @@
 name: Fire News Bot
 
+
+
 on:
 
   schedule:
@@ -67,14 +69,20 @@ jobs:
 
 
       - name: Commit history
+
         run: |
+
           git config --global user.name "github-actions[bot]"
+
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          # 1. 確保檔案存在，避免 add 失敗
+
+          # 注意：這裡要加入 seen_events.json
+
           touch seen_events.json daily_summary.txt
-          # 2. 【核心修正】強制拉取遠端最新變更，解決 fetch first 衝突
-          git pull origin main --rebase
-          # 3. 推送紀錄
+
           git add seen_events.json daily_summary.txt
-          git commit -m "Update history (enhanced fingerprint & sync)" || exit 0
+
+          git commit -m "Update history (enhanced fingerprint)" || exit 0
+
           git push
+
