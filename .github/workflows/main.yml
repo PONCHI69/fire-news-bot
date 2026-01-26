@@ -37,7 +37,8 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          touch seen_events.txt daily_summary.txt
-          git add seen_events.txt daily_summary.txt
-          git commit -m "Update history" || exit 0
+          # 注意：這裡要加入 seen_events.json
+          touch seen_events.json daily_summary.txt
+          git add seen_events.json daily_summary.txt
+          git commit -m "Update history (enhanced fingerprint)" || exit 0
           git push
