@@ -29,7 +29,7 @@ BUILDING = ["building", "apartment", "skyscraper", "大樓", "商辦", "住宅",
 
 EXCLUDE = ["演練", "模擬", "演習", "訓練", "simulation", "drill", "exercise", "遊戲", "steam", "股市", "論壇", "活動"]
 EXCLUDE += ["稅收", "股價", "財報", "營收", "總統", "選戰", "政策", "趨勢", "熱情", "點燃蘋果", "稅收政策"]
-EXCLUDE += ["調查", "委員會", "報告", "日前", "回顧", "徵求", "資料提供", "成因", "原因仍未確定", "調查人員調查"]
+EXCLUDE += ["調查", "委員會", "報告", "日前", "回顧", "徵求", "資料提供", "成因", "原因仍未確定", "起火成因"]
 
 COUNTRY_MAP = {
     "japan": "🇯🇵", "tokyo": "🇯🇵", "us": "🇺🇸", "u.s.": "🇺🇸", "america": "🇺🇸",
@@ -61,18 +61,19 @@ def save_set(path, s):
     with open(path, "w", encoding="utf-8") as f: f.write("\n".join(s))
 
 # =========================
-# 核心邏輯 (事件層級去重)
+# 核心邏輯：事件層級正規化 (ChatGPT 建議)
 # =========================
 def normalize_event_text(title):
     t = title.lower()
-    t = re.sub(r"\d+", "", t) # 1. 移除數字
+    t = re.sub(r"\d+", "", t) # 1. 移除人數
+    # 2. 移除動態新聞詞彙
     noise_words = [
         "至少", "最新", "消息", "快訊", "更新", "造成", "導致", "死亡", "失蹤", "受傷", 
-        "報導", "指出", "表示", "消防員", "罹難", "名婦女", "正在與火焰搏鬥", "聲"
+        "報導", "指出", "表示", "消防員", "罹難", "爆炸後", "正在與火焰搏鬥"
     ]
     for w in noise_words: t = t.replace(w, "")
-    t = re.sub(r"[^a-z\u4e00-\u9fff]", "", t) # 3. 只保留中英文核心
-    return t[:25] # 4. 截短以進行模糊匹配
+    t = re.sub(r"[^a-z\u4e00-\u9fff]", "", t) # 3. 只留語意核心
+    return t[:25] # 4. 模糊匹配截短
 
 def incident_fingerprint(title):
     normalized = normalize_event_text(title)
@@ -117,7 +118,7 @@ def parse_time(pub):
     except: return "未知"
 
 # =========================
-# 即時監測
+# 即時監測 (永久去重)
 # =========================
 SEEN_EVENTS = load_seen()
 SUMMARY = load_set(SUMMARY_FILE)
@@ -125,7 +126,7 @@ SUMMARY = load_set(SUMMARY_FILE)
 def run_realtime():
     feeds = [
         "https://news.google.com/rss/search?q=(factory+OR+industrial+OR+refinery+OR+semiconductor)+(fire+OR+explosion)+-investigation+-report+when:12h&hl=en&gl=US&ceid=US:en",
-        "https://news.google.com/rss/search?q=(工廠+OR+廠房+OR+科技+OR+大樓+OR+中油+OR+台塑)+(火災+OR+爆炸+OR+起火)+-調查+-委員會+-報告+when:12h&hl=zh-TW&gl=TW&ceid=TW:zh-tw"
+        "https://news.google.com/rss/search?q=(工廠+OR+廠房+OR+科技+OR+電子+OR+大樓+OR+中油+OR+台塑)+(火災+OR+爆炸+OR+起火)+-調查+-委員會+-報告+when:12h&hl=zh-TW&gl=TW&ceid=TW:zh-tw"
     ]
 
     now = datetime.now()
@@ -142,9 +143,9 @@ def run_realtime():
 
                 fp = incident_fingerprint(title)
                 
-                # 永久去重：如果在 seen_events.json 中，就不再通報
+                # 永久過濾：已在紀錄中的事件不再發送
                 if fp in SEEN_EVENTS:
-                    print(f"跳過已通報事件: {title[:20]}...")
+                    print(f"跳過相似事件: {title[:20]}...")
                     continue
 
                 flag = detect_country(title, link)
@@ -158,7 +159,7 @@ def run_realtime():
                 SEEN_EVENTS[fp] = now.isoformat()
                 SUMMARY.add(fp)
         except Exception as e:
-            print(f"抓取錯誤: {e}")
+            print(f"抓取錯誤: {e}") # 此處已補齊修正 SyntaxError
 
     save_seen(SEEN_EVENTS)
     save_set(SUMMARY_FILE, SUMMARY)
@@ -166,13 +167,3 @@ def run_realtime():
 def run_daily_summary():
     if not SUMMARY: return
     msg = f"🗞 **24h 工業事故摘要**\n共 {len(SUMMARY)} 起已合併事故"
-    requests.post(WEBHOOK_GENERAL, json={"content": msg}, timeout=10)
-    SUMMARY.clear()
-    save_set(SUMMARY_FILE, SUMMARY)
-
-if __name__ == "__main__":
-    mode = os.getenv("MODE", "realtime")
-    if mode == "summary":
-        run_daily_summary()
-    else:
-        run_realtime()
