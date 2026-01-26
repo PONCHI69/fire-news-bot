@@ -69,20 +69,14 @@ jobs:
 
 
       - name: Commit history
-
         run: |
-
           git config --global user.name "github-actions[bot]"
-
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-
-          # 注意：這裡要加入 seen_events.json
-
+          # 1. 確保檔案存在
           touch seen_events.json daily_summary.txt
-
+          # 2. 先拉取遠端最新變更，解決 fetch first 的衝突
+          git pull origin main --rebase
+          # 3. 推送更新後的紀錄
           git add seen_events.json daily_summary.txt
-
-          git commit -m "Update history (enhanced fingerprint)" || exit 0
-
+          git commit -m "Update history (resolved syntax & sync)" || exit 0
           git push
-
