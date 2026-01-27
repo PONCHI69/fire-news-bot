@@ -2,9 +2,8 @@ import requests
 from bs4 import BeautifulSoup
 import hashlib
 import os
-from datetime import datetime, timedelta
 import re
-import json
+from datetime import datetime, timedelta
 
 # =========================
 # Discord Webhooks
@@ -13,168 +12,177 @@ WEBHOOK_GENERAL = os.getenv("DISCORD_WEBHOOK_GENERAL")
 WEBHOOK_CHEMICAL = os.getenv("DISCORD_WEBHOOK_CHEMICAL")
 WEBHOOK_ENERGY = os.getenv("DISCORD_WEBHOOK_ENERGY")
 
-SEEN_FILE = "seen_events.json" 
-SUMMARY_FILE = "daily_summary.txt"
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 # =========================
-# 關鍵字與排除設定
+# 關鍵字設定
 # =========================
 FIRE = ["fire", "blaze", "火災", "火警", "起火", "失火"]
 EXPLOSION = ["explosion", "爆炸", "氣爆"]
+
 CHEMICAL = ["chemical", "petrochemical", "refinery", "石化", "化工", "煉油", "油庫"]
 ENERGY = ["power", "plant", "電廠", "變電所", "儲能", "太陽能", "鋰電池"]
-TECH = ["semiconductor", "electronics", "wafer", "半導體", "科技", "電子", "面板", "光電", "積體電路"]
-BUILDING = ["building", "apartment", "skyscraper", "大樓", "商辦", "住宅", "公寓", "建築"]
+TECH = ["semiconductor", "electronics", "wafer", "半導體", "電子", "面板"]
+BUILDING = ["building", "apartment", "skyscraper", "大樓", "住宅", "公寓"]
 
-EXCLUDE = ["演練", "模擬", "演習", "訓練", "simulation", "drill", "exercise", "遊戲", "steam", "股市", "論壇", "活動"]
-EXCLUDE += ["稅收", "股價", "財報", "營收", "總統", "選戰", "政策", "趨勢", "熱情", "點燃蘋果", "稅收政策"]
-EXCLUDE += ["調查", "委員會", "報告", "日前", "回顧", "徵求", "資料提供", "成因", "原因仍未確定", "起火成因"]
+EXCLUDE = [
+    "演練", "模擬", "演習", "訓練", "simulation", "drill",
+    "股市", "論壇", "政策", "財報", "營收", "調查", "委員會",
+    "原因仍未確定", "起火成因", "防火", "預防", "宣導"
+]
 
 COUNTRY_MAP = {
-    "japan": "🇯🇵", "tokyo": "🇯🇵", "us": "🇺🇸", "u.s.": "🇺🇸", "america": "🇺🇸",
-    "germany": "🇩🇪", "berlin": "🇩🇪", "uk": "🇬🇧", "london": "🇬🇧",
-    "canada": "🇨🇦", "india": "🇮🇳", "china": "🇨🇳", "taiwan": "🇹🇼"
+    "greece": "🇬🇷",
+    "japan": "🇯🇵",
+    "us": "🇺🇸",
+    "u.s.": "🇺🇸",
+    "america": "🇺🇸",
+    "uk": "🇬🇧",
+    "germany": "🇩🇪",
+    "china": "🇨🇳",
+    "taiwan": "🇹🇼",
 }
 
 # =========================
-# 基礎工具
+# 工具
 # =========================
-def sha(text):
-    return hashlib.sha256(text.encode()).hexdigest()
-
-def load_seen():
-    if not os.path.exists(SEEN_FILE): return {}
-    try:
-        with open(SEEN_FILE, "r", encoding="utf-8") as f: return json.load(f)
-    except: return {}
-
-def save_seen(data):
-    with open(SEEN_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False)
-
-def load_set(path):
-    if not os.path.exists(path): return set()
-    with open(path, "r", encoding="utf-8") as f: return set(f.read().splitlines())
-
-def save_set(path, s):
-    with open(path, "w", encoding="utf-8") as f: f.write("\n".join(s))
-
-# =========================
-# 核心邏輯：事件層級正規化 (ChatGPT 建議)
-# =========================
-def normalize_event_text(title):
-    t = title.lower()
-    t = re.sub(r"\d+", "", t) # 1. 移除人數
-    # 2. 移除動態新聞詞彙
-    noise_words = [
-        "至少", "最新", "消息", "快訊", "更新", "造成", "導致", "死亡", "失蹤", "受傷", 
-        "報導", "指出", "表示", "消防員", "罹難", "爆炸後", "正在與火焰搏鬥"
-    ]
-    for w in noise_words: t = t.replace(w, "")
-    t = re.sub(r"[^a-z\u4e00-\u9fff]", "", t) # 3. 只留語意核心
-    return t[:25] # 4. 模糊匹配截短
-
-def incident_fingerprint(title):
-    normalized = normalize_event_text(title)
-    return sha(normalized)
-
-def detect_country(title, link):
-    text = (title + " " + link).lower()
-    for k, flag in COUNTRY_MAP.items():
-        if k in text: return flag
-    return "🌍"
-
-def is_real_incident(title):
-    t = title.lower()
-    if any(k in t for k in EXCLUDE): return False
-    has_event = any(k in t for k in FIRE + EXPLOSION)
-    is_metaphor = any(k in t for k in ["點燃蘋果", "點燃市場", "點燃趨勢", "壞兔子"])
-    is_prevention = any(k in t for k in ["防火", "預防", "宣導", "平安符", "禁止在飛機上使用"])
-    return has_event and not is_metaphor and not is_prevention
-
-def translate_to_zh(text):
-    try:
-        res = requests.get("https://translate.googleapis.com/translate_a/single",
-                           params={"client": "gtx", "sl": "auto", "tl": "zh-TW", "dt": "t", "q": text}, timeout=10)
-        return res.json()[0][0][0]
-    except: return text
-
-def classify_channel(title):
-    t = title.lower()
-    if any(k in t for k in CHEMICAL): return "CHEMICAL"
-    if any(k in t for k in ENERGY): return "ENERGY"
-    if any(k in t for k in TECH): return "TECH"
-    if any(k in t for k in BUILDING): return "BUILDING"
-    return "GENERAL"
-
-def webhook_by_channel(ch):
-    return {"CHEMICAL": WEBHOOK_CHEMICAL, "ENERGY": WEBHOOK_ENERGY, "TECH": WEBHOOK_GENERAL, "BUILDING": WEBHOOK_GENERAL, "GENERAL": WEBHOOK_GENERAL}.get(ch)
+def sha(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 def parse_time(pub):
     try:
         gmt = datetime.strptime(pub, "%a, %d %b %Y %H:%M:%S %Z")
         return (gmt + timedelta(hours=8)).strftime("%Y-%m-%d %H:%M")
-    except: return "未知"
+    except:
+        return "未知"
+
+def detect_country(text):
+    t = text.lower()
+    for k, flag in COUNTRY_MAP.items():
+        if k in t:
+            return flag
+    return "🌍"
+
+def classify_channel(title):
+    t = title.lower()
+    if any(k in t for k in CHEMICAL):
+        return "CHEMICAL"
+    if any(k in t for k in ENERGY):
+        return "ENERGY"
+    if any(k in t for k in TECH):
+        return "TECH"
+    if any(k in t for k in BUILDING):
+        return "BUILDING"
+    return "GENERAL"
+
+def webhook_by_channel(ch):
+    return {
+        "CHEMICAL": WEBHOOK_CHEMICAL,
+        "ENERGY": WEBHOOK_ENERGY,
+        "TECH": WEBHOOK_GENERAL,
+        "BUILDING": WEBHOOK_GENERAL,
+        "GENERAL": WEBHOOK_GENERAL,
+    }.get(ch, WEBHOOK_GENERAL)
 
 # =========================
-# 即時監測 (永久去重)
+# 事件層級去重（核心）
 # =========================
-SEEN_EVENTS = load_seen()
-SUMMARY = load_set(SUMMARY_FILE)
+def is_real_incident(title):
+    t = title.lower()
+    if any(k in t for k in EXCLUDE):
+        return False
+    return any(k in t for k in FIRE + EXPLOSION)
 
+def extract_event_core(title):
+    """
+    事件唯一鍵 = 國家 + 設施 + 災害類型
+    """
+    t = title.lower()
+
+    event_type = "fire" if any(k in t for k in FIRE) else "explosion"
+
+    facility_keywords = [
+        "factory", "plant", "refinery", "semiconductor",
+        "工廠", "廠房", "食品廠", "餅乾", "煉油廠"
+    ]
+    facility = next((k for k in facility_keywords if k in t), "site")
+
+    location = next((k for k in COUNTRY_MAP.keys() if k in t), "unknown")
+
+    return f"{location}-{facility}-{event_type}"
+
+def incident_fingerprint(title):
+    return sha(extract_event_core(title))
+
+# =========================
+# 即時監測（單 run 完整去重）
+# =========================
 def run_realtime():
     feeds = [
-        "https://news.google.com/rss/search?q=(factory+OR+industrial+OR+refinery+OR+semiconductor)+(fire+OR+explosion)+-investigation+-report+when:12h&hl=en&gl=US&ceid=US:en",
-        "https://news.google.com/rss/search?q=(工廠+OR+廠房+OR+科技+OR+電子+OR+大樓+OR+中油+OR+台塑)+(火災+OR+爆炸+OR+起火)+-調查+-委員會+-報告+when:12h&hl=zh-TW&gl=TW&ceid=TW:zh-tw"
+        "https://news.google.com/rss/search?q=(factory+OR+industrial+OR+refinery+OR+semiconductor)+(fire+OR+explosion)+when:12h&hl=en&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=(工廠+OR+廠房+OR+食品廠+OR+大樓)+(火災+OR+爆炸)+when:12h&hl=zh-TW&gl=TW&ceid=TW:zh-tw",
     ]
 
-    now = datetime.now()
-    new_event_count = 0  # 1. 新增計數器
-    
+    # 單次執行的事件池（完全不依賴檔案）
+    event_pool = {}
+
     for url in feeds:
         try:
             res = requests.get(url, headers=HEADERS, timeout=15)
             soup = BeautifulSoup(res.content, "xml")
-            items = soup.find_all("item")
-            
-            for item in items[:30]:
+
+            for item in soup.find_all("item")[:40]:
                 title = item.title.text
                 link = item.link.text
                 pub = item.pubDate.text if item.pubDate else ""
 
-                if not is_real_incident(title): continue
-
-                fp = incident_fingerprint(title)
-                
-                if fp in SEEN_EVENTS:
-                    print(f"跳過相似事件: {title[:20]}...")
+                if not is_real_incident(title):
                     continue
 
-                flag = detect_country(title, link)
-                channel = classify_channel(title)
-                webhook = webhook_by_channel(channel)
-                display_title = translate_to_zh(title) if flag != "🇹🇼" else title
+                fp = incident_fingerprint(title)
 
-                msg = f"{flag} **全球工業事故通報**\n🔥 分類：`{channel}`\n[{display_title}](<{link}>)\n🕒 時間：`{parse_time(pub)}`"
-                
-                requests.post(webhook, json={"content": msg}, timeout=10)
-                SEEN_EVENTS[fp] = now.isoformat()
-                SUMMARY.add(fp)
-                new_event_count += 1 # 2. 每發送一則就增加計數
-                
+                if fp not in event_pool:
+                    event_pool[fp] = {
+                        "titles": [title],
+                        "links": [link],
+                        "pub": pub,
+                    }
+                else:
+                    event_pool[fp]["titles"].append(title)
+                    event_pool[fp]["links"].append(link)
+
         except Exception as e:
-            print(f"抓取錯誤: {e}")
+            print(f"RSS 讀取錯誤: {e}")
 
-    # 3. 核心邏輯：如果掃描完畢且計數器仍為 0，發送狀態訊息
-    if new_event_count == 0:
-        status_msg = f"✅ **系統監測正常**\n🔍 掃描結果：系統設定的前 12 個小時，無新事件發生。"
-        requests.post(WEBHOOK_GENERAL, json={"content": status_msg}, timeout=10)
-        print("今日無新事件，已發送狀態訊息。")
+    # 發送整合後的事件
+    for fp, data in event_pool.items():
+        main_title = data["titles"][0]
+        link = data["links"][0]
+        source_count = len(data["titles"])
 
-    save_seen(SEEN_EVENTS)
-    save_set(SUMMARY_FILE, SUMMARY)
+        flag = detect_country(main_title)
+        channel = classify_channel(main_title)
+        webhook = webhook_by_channel(channel)
 
-def run_daily_summary():
-    if not SUMMARY: return
-    msg = f"🗞 **24h 工業事故摘要**\n共 {len(SUMMARY)} 起已合併事故"
+        msg = (
+            f"{flag} **全球工業事故通報**\n"
+            f"🔥 分類：`{channel}`\n"
+            f"[{main_title}](<{link}>)\n"
+            f"🧠 此事件已整合 `{source_count}` 則新聞來源\n"
+            f"🕒 時間：`{parse_time(data['pub'])}`"
+        )
+
+        requests.post(webhook, json={"content": msg}, timeout=10)
+
+    if not event_pool:
+        requests.post(
+            WEBHOOK_GENERAL,
+            json={"content": "✅ **系統監測正常**\n過去 12 小時內無新增工業事故新聞。"},
+            timeout=10,
+        )
+
+# =========================
+# 入口
+# =========================
+if __name__ == "__main__":
+    run_realtime()
