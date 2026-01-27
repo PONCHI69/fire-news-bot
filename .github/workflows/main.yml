@@ -2,6 +2,7 @@ name: Fire News Bot
 
 on:
   schedule:
+    # 每 2 小時
     - cron: '47 */2 * * *'
   workflow_dispatch:
 
