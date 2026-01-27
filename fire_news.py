@@ -44,24 +44,10 @@ COUNTRY_MAP = {
 }
 
 # =========================
-# 工具函式
+# 工具
 # =========================
 def sha(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
-
-def translate_to_zh(text):
-    """呼叫 Google 翻譯 API"""
-    if not text: return text
-    try:
-        res = requests.get(
-            "https://translate.googleapis.com/translate_a/single",
-            params={"client": "gtx", "sl": "auto", "tl": "zh-TW", "dt": "t", "q": text},
-            timeout=10
-        )
-        return res.json()[0][0][0]
-    except Exception as e:
-        print(f"翻譯錯誤: {e}")
-        return text
 
 def parse_time(pub):
     try:
@@ -79,21 +65,47 @@ def detect_country(text):
 
 def classify_channel(title):
     t = title.lower()
-    if any(k in t for k in CHEMICAL): return "CHEMICAL"
-    if any(k in t for k in ENERGY): return "ENERGY"
-    if any(k in t for k in TECH): return "TECH"
-    if any(k in t for k in BUILDING): return "BUILDING"
+    if any(k in t for k in CHEMICAL):
+        return "CHEMICAL"
+    if any(k in t for k in ENERGY):
+        return "ENERGY"
+    if any(k in t for k in TECH):
+        return "TECH"
+    if any(k in t for k in BUILDING):
+        return "BUILDING"
     return "GENERAL"
 
 def webhook_by_channel(ch):
-    mapping = {
+    return {
         "CHEMICAL": WEBHOOK_CHEMICAL,
         "ENERGY": WEBHOOK_ENERGY,
         "TECH": WEBHOOK_GENERAL,
         "BUILDING": WEBHOOK_GENERAL,
         "GENERAL": WEBHOOK_GENERAL,
-    }
-    return mapping.get(ch, WEBHOOK_GENERAL)
+    }.get(ch, WEBHOOK_GENERAL)
+
+# =========================
+# 翻譯（只翻非中文）
+# =========================
+def contains_chinese(text: str) -> bool:
+    return bool(re.search(r"[\u4e00-\u9fff]", text))
+
+def translate_to_zh(text: str) -> str:
+    try:
+        r = requests.get(
+            "https://translate.googleapis.com/translate_a/single",
+            params={
+                "client": "gtx",
+                "sl": "auto",
+                "tl": "zh-TW",
+                "dt": "t",
+                "q": text,
+            },
+            timeout=10,
+        )
+        return r.json()[0][0][0]
+    except:
+        return text
 
 # =========================
 # 事件層級去重（核心）
@@ -105,25 +117,36 @@ def is_real_incident(title):
     return any(k in t for k in FIRE + EXPLOSION)
 
 def extract_event_core(title):
+    """
+    事件唯一鍵 = 國家 + 設施 + 災害類型
+    """
     t = title.lower()
+
     event_type = "fire" if any(k in t for k in FIRE) else "explosion"
-    facility_keywords = ["factory", "plant", "refinery", "semiconductor", "工廠", "廠房", "食品廠", "餅乾", "煉油廠"]
+
+    facility_keywords = [
+        "factory", "plant", "refinery", "semiconductor",
+        "工廠", "廠房", "食品廠", "餅乾", "煉油廠"
+    ]
     facility = next((k for k in facility_keywords if k in t), "site")
+
     location = next((k for k in COUNTRY_MAP.keys() if k in t), "unknown")
+
     return f"{location}-{facility}-{event_type}"
 
 def incident_fingerprint(title):
     return sha(extract_event_core(title))
 
 # =========================
-# 即時監測
+# 即時監測（單 run 完整去重）
 # =========================
 def run_realtime():
     feeds = [
         "https://news.google.com/rss/search?q=(factory+OR+industrial+OR+refinery+OR+semiconductor)+(fire+OR+explosion)+when:12h&hl=en&gl=US&ceid=US:en",
-        "https://news.google.com/rss/search?q=(工廠+OR+廠房+OR+科技+OR+電子+OR+大樓+OR+中油+OR+台塑)+(火災+OR+爆炸)+when:12h&hl=zh-TW&gl=TW&ceid=TW:zh-tw",
+        "https://news.google.com/rss/search?q=(工廠+OR+廠房+OR+食品廠+OR+大樓)+(火災+OR+爆炸)+when:12h&hl=zh-TW&gl=TW&ceid=TW:zh-tw",
     ]
 
+    # 單次執行事件池（不吃檔案）
     event_pool = {}
 
     for url in feeds:
@@ -154,37 +177,5 @@ def run_realtime():
         except Exception as e:
             print(f"RSS 讀取錯誤: {e}")
 
-    # 發送整合後的事件
-    for fp, data in event_pool.items():
-        raw_title = data["titles"][0]
-        link = data["links"][0]
-        source_count = len(data["titles"])
-
-        flag = detect_country(raw_title)
-        
-        # 翻譯邏輯：如果不是台灣新聞，就翻譯標題
-        display_title = translate_to_zh(raw_title) if flag != "🇹🇼" else raw_title
-
-        channel = classify_channel(raw_title)
-        webhook = webhook_by_channel(channel)
-
-        msg = (
-            f"{flag} **全球工業事故通報**\n"
-            f"🔥 分類：`{channel}`\n"
-            f"[{display_title}](<{link}>)\n"
-            f"🧠 此事件已整合 `{source_count}` 則新聞來源\n"
-            f"🕒 時間：`{parse_time(data['pub'])}`"
-        )
-
-        requests.post(webhook, json={"content": msg}, timeout=10)
-
-    # 心跳機制：若無事件則回報正常
-    if not event_pool:
-        requests.post(
-            WEBHOOK_GENERAL,
-            json={"content": "✅ **系統監測正常**\n過去 12 小時內無新增工業事故新聞。"},
-            timeout=10,
-        )
-
-if __name__ == "__main__":
-    run_realtime()
+    # 發送整合後事件
+    for f
