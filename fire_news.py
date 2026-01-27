@@ -49,12 +49,26 @@ def translate_to_zh(text):
     except: return text
 
 def extract_event_core(title):
+    """
+    優化後的事件核心提取：將同義詞、死傷人數剔除，強化去重
+    """
     t = title.lower()
+    
+    # 1. 偵測災害類型
     event_type = "fire" if any(k in t for k in FIRE) else "explosion"
-    # 增加更多設施關鍵字以利去重
-    facility_keywords = ["factory", "plant", "refinery", "cookie", "biscuit", "工廠", "廠房", "餅乾"]
-    facility = next((k for k in facility_keywords if k in t), "site")
-    location = next((k for k in COUNTRY_MAP.keys() if k in t), "unknown")
+    
+    # 2. 偵測國家
+    location = next((k for k in COUNTRY_MAP.keys() if k in t), "global")
+    
+    # 3. 設施正規化 (將 cookie 和 biscuit 合併)
+    t = t.replace("cookie", "biscuit")
+    facility_keywords = ["refinery", "biscuit", "factory", "plant", "semiconductor", "warehouse", "工廠", "廠房", "餅乾", "煉油廠"]
+    facility = next((k for k in facility_keywords if k in t), "industrial_site")
+    
+    # 4. 移除標題中的變動數字 (死傷人數)
+    t = re.sub(r"\d+", "", t)
+    
+    # 產生穩定的指紋
     return hashlib.sha256(f"{location}-{facility}-{event_type}".encode()).hexdigest()
 
 def detect_country(text):
@@ -86,20 +100,31 @@ def run_realtime():
                 if not any(k in title.lower() for k in FIRE + EXPLOSION): continue
 
                 fp = extract_event_core(title)
-                # 跨次去重：如果檔案裡已經看過這個指紋，直接跳過整組合併
+                
+                # 跨次去重
                 if fp in seen_events: continue
 
                 if fp not in event_pool:
-                    event_pool[fp] = {"titles": [title], "link": item.link.text, "pub": item.pubDate.text}
+                    event_pool[fp] = {
+                        "titles": [title], 
+                        "link": item.link.text, 
+                        "pub": item.pubDate.text,
+                        "origin_title": title # 用於翻譯判定
+                    }
                 else:
-                    event_pool[fp]["titles"].append(title)
+                    # 避免同標題重複加入
+                    if title not in event_pool[fp]["titles"]:
+                        event_pool[fp]["titles"].append(title)
+                        
         except Exception as e: print(f"RSS 錯誤: {e}")
 
-    # 發送新事件
     sent_count = 0
     for fp, data in event_pool.items():
-        main_title = data["titles"][0]
+        # 選擇長度中等的標題作為主標題，通常較準確
+        main_title = sorted(data["titles"], key=len)[len(data["titles"])//2]
         flag = detect_country(main_title)
+        
+        # 翻譯邏輯
         display_title = f"{main_title}\n（{translate_to_zh(main_title)}）" if flag != "🇹🇼" else main_title
         
         msg = (
