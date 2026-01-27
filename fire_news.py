@@ -32,10 +32,8 @@ EXCLUDE = [
 ]
 
 COUNTRY_MAP = {
-    "greece": "🇬🇷",
     "japan": "🇯🇵",
     "us": "🇺🇸",
-    "u.s.": "🇺🇸",
     "america": "🇺🇸",
     "uk": "🇬🇧",
     "germany": "🇩🇪",
@@ -46,7 +44,7 @@ COUNTRY_MAP = {
 # =========================
 # 工具
 # =========================
-def sha(text: str) -> str:
+def sha(text):
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 def parse_time(pub):
@@ -82,10 +80,10 @@ def webhook_by_channel(ch):
         "TECH": WEBHOOK_GENERAL,
         "BUILDING": WEBHOOK_GENERAL,
         "GENERAL": WEBHOOK_GENERAL,
-    }.get(ch, WEBHOOK_GENERAL)
+    }[ch]
 
 # =========================
-# 事件層級去重（核心）
+# 核心事件去重
 # =========================
 def is_real_incident(title):
     t = title.lower()
@@ -94,95 +92,67 @@ def is_real_incident(title):
     return any(k in t for k in FIRE + EXPLOSION)
 
 def extract_event_core(title):
-    """
-    事件唯一鍵 = 國家 + 設施 + 災害類型
-    """
     t = title.lower()
-
-    event_type = "fire" if any(k in t for k in FIRE) else "explosion"
-
-    facility_keywords = [
-        "factory", "plant", "refinery", "semiconductor",
-        "工廠", "廠房", "食品廠", "餅乾", "煉油廠"
-    ]
-    facility = next((k for k in facility_keywords if k in t), "site")
-
-    location = next((k for k in COUNTRY_MAP.keys() if k in t), "unknown")
-
-    return f"{location}-{facility}-{event_type}"
+    event = "fire" if any(k in t for k in FIRE) else "explosion"
+    location = next((k for k in COUNTRY_MAP if k in t), "unknown")
+    return f"{location}-{event}"
 
 def incident_fingerprint(title):
     return sha(extract_event_core(title))
 
 # =========================
-# 即時監測（單 run 完整去重）
+# 主流程
 # =========================
-def run_realtime():
+def run():
     feeds = [
-        "https://news.google.com/rss/search?q=(factory+OR+industrial+OR+refinery+OR+semiconductor)+(fire+OR+explosion)+when:12h&hl=en&gl=US&ceid=US:en",
-        "https://news.google.com/rss/search?q=(工廠+OR+廠房+OR+食品廠+OR+大樓)+(火災+OR+爆炸)+when:12h&hl=zh-TW&gl=TW&ceid=TW:zh-tw",
+        "https://news.google.com/rss/search?q=(factory+OR+refinery)+(fire+OR+explosion)+when:12h",
+        "https://news.google.com/rss/search?q=(工廠+OR+廠房)+(火災+OR+爆炸)+when:12h&hl=zh-TW"
     ]
 
-    # 單次執行的事件池（完全不依賴檔案）
-    event_pool = {}
+    events = {}
 
     for url in feeds:
-        try:
-            res = requests.get(url, headers=HEADERS, timeout=15)
-            soup = BeautifulSoup(res.content, "xml")
+        res = requests.get(url, headers=HEADERS, timeout=15)
+        soup = BeautifulSoup(res.content, "xml")
 
-            for item in soup.find_all("item")[:40]:
-                title = item.title.text
-                link = item.link.text
-                pub = item.pubDate.text if item.pubDate else ""
+        for item in soup.find_all("item"):
+            title = item.title.text
+            link = item.link.text
+            pub = item.pubDate.text if item.pubDate else ""
 
-                if not is_real_incident(title):
-                    continue
+            if not is_real_incident(title):
+                continue
 
-                fp = incident_fingerprint(title)
+            fp = incident_fingerprint(title)
+            events.setdefault(fp, {
+                "title": title,
+                "link": link,
+                "pub": pub,
+                "count": 0
+            })
+            events[fp]["count"] += 1
 
-                if fp not in event_pool:
-                    event_pool[fp] = {
-                        "titles": [title],
-                        "links": [link],
-                        "pub": pub,
-                    }
-                else:
-                    event_pool[fp]["titles"].append(title)
-                    event_pool[fp]["links"].append(link)
-
-        except Exception as e:
-            print(f"RSS 讀取錯誤: {e}")
-
-    # 發送整合後的事件
-    for fp, data in event_pool.items():
-        main_title = data["titles"][0]
-        link = data["links"][0]
-        source_count = len(data["titles"])
-
-        flag = detect_country(main_title)
-        channel = classify_channel(main_title)
+    for e in events.values():
+        flag = detect_country(e["title"])
+        channel = classify_channel(e["title"])
         webhook = webhook_by_channel(channel)
 
         msg = (
             f"{flag} **全球工業事故通報**\n"
             f"🔥 分類：`{channel}`\n"
-            f"[{main_title}](<{link}>)\n"
-            f"🧠 此事件已整合 `{source_count}` 則新聞來源\n"
-            f"🕒 時間：`{parse_time(data['pub'])}`"
+            f"[{e['title']}](<{e['link']}>)\n"
+            f"🧠 此事件已整合 `{e['count']}` 則新聞來源\n"
+            f"🕒 時間：`{parse_time(e['pub'])}`"
         )
 
         requests.post(webhook, json={"content": msg}, timeout=10)
 
-    if not event_pool:
+    if not events:
         requests.post(
             WEBHOOK_GENERAL,
-            json={"content": "✅ **系統監測正常**\n過去 12 小時內無新增工業事故新聞。"},
-            timeout=10,
+            json={"content": "✅ 系統監測正常，12 小時內無新事故"},
+            timeout=10
         )
 
-# =========================
-# 入口
-# =========================
 if __name__ == "__main__":
-    run_realtime()
+    run()
