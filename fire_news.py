@@ -7,7 +7,7 @@ import json
 from datetime import datetime, timedelta
 
 # =========================
-# Discord Webhooks
+# Discord Webhook
 # =========================
 WEBHOOK_GENERAL = os.getenv("DISCORD_WEBHOOK_GENERAL")
 
@@ -19,12 +19,20 @@ HEADERS = {"User-Agent": "Mozilla/5.0"}
 # =========================
 FIRE = ["fire", "blaze", "火災", "火警", "起火", "失火"]
 EXPLOSION = ["explosion", "爆炸", "氣爆"]
-EXCLUDE = ["演練", "模擬", "演習", "訓練", "simulation", "drill", "exercise",
-           "股市", "財報", "營收", "政策", "趨勢", "宣導"]
+EXCLUDE = [
+    "演練", "模擬", "演習", "訓練", "simulation", "drill", "exercise",
+    "股市", "財報", "營收", "政策", "趨勢", "宣導"
+]
 
 COUNTRY_MAP = {
-    "japan": "🇯🇵", "us": "🇺🇸", "germany": "🇩🇪",
-    "uk": "🇬🇧", "china": "🇨🇳", "taiwan": "🇹🇼"
+    "japan": "🇯🇵",
+    "us": "🇺🇸",
+    "u.s.": "🇺🇸",
+    "america": "🇺🇸",
+    "germany": "🇩🇪",
+    "uk": "🇬🇧",
+    "china": "🇨🇳",
+    "taiwan": "🇹🇼"
 }
 
 # =========================
@@ -44,6 +52,9 @@ def save_seen(data):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 def normalize_title(title):
+    """
+    用於 fingerprint，刻意不翻譯，避免同事件被切裂
+    """
     t = title.lower()
     t = re.sub(r"\d+", "", t)
     t = re.sub(r"[^a-z\u4e00-\u9fff]", "", t)
@@ -73,7 +84,27 @@ def parse_time(pub):
         return "未知"
 
 # =========================
-# Discord 發送（含 Thread）
+# 翻譯（只在非台灣新聞使用）
+# =========================
+def translate_to_zh(text):
+    try:
+        res = requests.get(
+            "https://translate.googleapis.com/translate_a/single",
+            params={
+                "client": "gtx",
+                "sl": "auto",
+                "tl": "zh-TW",
+                "dt": "t",
+                "q": text
+            },
+            timeout=10
+        )
+        return res.json()[0][0][0]
+    except Exception:
+        return text
+
+# =========================
+# Discord 發送（Thread）
 # =========================
 def send_message(content, thread_id=None, thread_name=None):
     payload = {"content": content}
@@ -112,16 +143,19 @@ def run():
             fp = fingerprint(title)
             flag = detect_country(title, link)
 
+            # 顯示用標題（非台灣才翻譯）
+            display_title = title if flag == "🇹🇼" else translate_to_zh(title)
+
             # === 新事件 ===
             if fp not in seen:
                 msg = (
                     f"{flag} **全球工業事故通報**\n"
-                    f"[{title}](<{link}>)\n"
+                    f"[{display_title}](<{link}>)\n"
                     f"🕒 `{parse_time(pub)}`\n"
                     f"🧠 此事件已整合 1 則新聞來源"
                 )
 
-                resp = send_message(msg, thread_name=title[:50])
+                resp = send_message(msg, thread_name=display_title[:80])
                 thread_id = resp["thread"]["id"]
 
                 seen[fp] = {
@@ -130,14 +164,14 @@ def run():
                     "created": datetime.utcnow().isoformat()
                 }
 
-            # === 同事件更新 ===
+            # === 同事件後續 ===
             else:
                 seen[fp]["count"] += 1
                 count = seen[fp]["count"]
 
                 msg = (
                     f"🔄 **事件更新**（第 {count} 則來源）\n"
-                    f"[{title}](<{link}>)\n"
+                    f"[{display_title}](<{link}>)\n"
                     f"🕒 `{parse_time(pub)}`"
                 )
 
