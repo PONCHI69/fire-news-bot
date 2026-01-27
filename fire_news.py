@@ -178,4 +178,41 @@ def run_realtime():
             print(f"RSS 讀取錯誤: {e}")
 
     # 發送整合後事件
-    for f
+    for fp, data in event_pool.items():
+        main_title = data["titles"][0]
+        link = data["links"][0]
+        source_count = len(data["titles"])
+
+        flag = detect_country(main_title)
+        channel = classify_channel(main_title)
+        webhook = webhook_by_channel(channel)
+
+        # 翻譯判斷
+        if contains_chinese(main_title):
+            display_title = main_title
+        else:
+            zh_title = translate_to_zh(main_title)
+            display_title = f"{main_title}\n（{zh_title}）"
+
+        msg = (
+            f"{flag} **全球工業事故通報**\n"
+            f"🔥 分類：`{channel}`\n"
+            f"[{display_title}](<{link}>)\n"
+            f"🧠 此事件已整合 `{source_count}` 則新聞來源\n"
+            f"🕒 時間：`{parse_time(data['pub'])}`"
+        )
+
+        requests.post(webhook, json={"content": msg}, timeout=10)
+
+    if not event_pool:
+        requests.post(
+            WEBHOOK_GENERAL,
+            json={"content": "✅ **系統監測正常**\n過去 12 小時內無新增工業事故新聞。"},
+            timeout=10,
+        )
+
+# =========================
+# 入口
+# =========================
+if __name__ == "__main__":
+    run_realtime()
