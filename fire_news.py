@@ -6,50 +6,32 @@ import re
 import json
 from datetime import datetime, timedelta
 
-WEBHOOK = os.getenv("DISCORD_WEBHOOK_GENERAL")
+# =========================
+# Discord Webhooks
+# =========================
+WEBHOOK_GENERAL = os.getenv("DISCORD_WEBHOOK_GENERAL")
+
 SEEN_FILE = "seen_events.json"
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
+# =========================
+# 關鍵字設定
+# =========================
 FIRE = ["fire", "blaze", "火災", "火警", "起火", "失火"]
 EXPLOSION = ["explosion", "爆炸", "氣爆"]
-EXCLUDE = ["演練", "模擬", "演習", "訓練", "simulation", "drill"]
+EXCLUDE = ["演練", "模擬", "演習", "訓練", "simulation", "drill", "exercise",
+           "股市", "財報", "營收", "政策", "趨勢", "宣導"]
 
 COUNTRY_MAP = {
-    "japan": "🇯🇵",
-    "us": "🇺🇸",
-    "u.s.": "🇺🇸",
-    "germany": "🇩🇪",
-    "uk": "🇬🇧",
-    "china": "🇨🇳",
-    "taiwan": "🇹🇼"
+    "japan": "🇯🇵", "us": "🇺🇸", "germany": "🇩🇪",
+    "uk": "🇬🇧", "china": "🇨🇳", "taiwan": "🇹🇼"
 }
 
-# ---------- utils ----------
-
+# =========================
+# 工具
+# =========================
 def sha(text):
     return hashlib.sha256(text.encode()).hexdigest()
-
-def normalize(title):
-    t = title.lower()
-    t = re.sub(r"\d+", "", t)
-    t = re.sub(r"[^a-z\u4e00-\u9fff]", "", t)
-    return t[:30]
-
-def fingerprint(title):
-    return sha(normalize(title))
-
-def is_real(title):
-    t = title.lower()
-    if any(x in t for x in EXCLUDE):
-        return False
-    return any(x in t for x in FIRE + EXPLOSION)
-
-def detect_country(text):
-    t = text.lower()
-    for k, f in COUNTRY_MAP.items():
-        if k in t:
-            return f
-    return "🌍"
 
 def load_seen():
     if not os.path.exists(SEEN_FILE):
@@ -61,96 +43,113 @@ def save_seen(data):
     with open(SEEN_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-def translate(text):
+def normalize_title(title):
+    t = title.lower()
+    t = re.sub(r"\d+", "", t)
+    t = re.sub(r"[^a-z\u4e00-\u9fff]", "", t)
+    return t[:30]
+
+def fingerprint(title):
+    return sha(normalize_title(title))
+
+def is_real_incident(title):
+    t = title.lower()
+    if any(k in t for k in EXCLUDE):
+        return False
+    return any(k in t for k in FIRE + EXPLOSION)
+
+def detect_country(title, link):
+    text = (title + link).lower()
+    for k, flag in COUNTRY_MAP.items():
+        if k in text:
+            return flag
+    return "🌍"
+
+def parse_time(pub):
     try:
-        r = requests.get(
-            "https://translate.googleapis.com/translate_a/single",
-            params={
-                "client": "gtx",
-                "sl": "auto",
-                "tl": "zh-TW",
-                "dt": "t",
-                "q": text
-            },
-            timeout=10
-        )
-        return r.json()[0][0][0]
+        gmt = datetime.strptime(pub, "%a, %d %b %Y %H:%M:%S %Z")
+        return (gmt + timedelta(hours=8)).strftime("%Y-%m-%d %H:%M")
     except:
-        return text
+        return "未知"
 
-# ---------- Discord ----------
+# =========================
+# Discord 發送（含 Thread）
+# =========================
+def send_message(content, thread_id=None, thread_name=None):
+    payload = {"content": content}
+    if thread_id:
+        payload["thread_id"] = thread_id
+    if thread_name:
+        payload["thread_name"] = thread_name
 
-def send_message(content):
-    r = requests.post(
-        WEBHOOK,
-        params={"wait": "true"},
-        json={"content": content},
-        timeout=10
-    )
+    r = requests.post(WEBHOOK_GENERAL, json=payload, timeout=10)
     r.raise_for_status()
-    return r.json()["id"]
+    return r.json()
 
-def create_thread(message_id, name):
-    url = f"{WEBHOOK}/messages/{message_id}/threads"
-    r = requests.post(
-        url,
-        json={"name": name[:90]},
-        timeout=10
-    )
-    r.raise_for_status()
-    return r.json()["id"]
-
-def send_to_thread(thread_id, content):
-    requests.post(
-        WEBHOOK,
-        json={"content": content, "thread_id": thread_id},
-        timeout=10
-    )
-
-# ---------- main ----------
-
+# =========================
+# 主流程
+# =========================
 def run():
     feeds = [
-        "https://news.google.com/rss/search?q=factory+fire+explosion&hl=en&gl=US&ceid=US:en",
-        "https://news.google.com/rss/search?q=工廠+火災+爆炸&hl=zh-TW&gl=TW&ceid=TW:zh-tw"
+        "https://news.google.com/rss/search?q=(factory+OR+industrial)+(fire+OR+explosion)+when:12h&hl=en&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=(工廠+OR+廠房)+(火災+OR+爆炸)+when:12h&hl=zh-TW&gl=TW&ceid=TW:zh-tw"
     ]
 
     seen = load_seen()
 
-    for feed in feeds:
-        res = requests.get(feed, headers=HEADERS)
+    for url in feeds:
+        res = requests.get(url, headers=HEADERS, timeout=15)
         soup = BeautifulSoup(res.content, "xml")
 
-        for item in soup.find_all("item")[:20]:
+        for item in soup.find_all("item")[:30]:
             title = item.title.text
             link = item.link.text
+            pub = item.pubDate.text if item.pubDate else ""
 
-            if not is_real(title):
+            if not is_real_incident(title):
                 continue
 
             fp = fingerprint(title)
-            flag = detect_country(title + link)
-            show_title = title if flag == "🇹🇼" else translate(title)
+            flag = detect_country(title, link)
 
+            # === 新事件 ===
             if fp not in seen:
-                content = (
-                    f"{flag} **工業事故通報**\n"
-                    f"[{show_title}](<{link}>)\n"
+                msg = (
+                    f"{flag} **全球工業事故通報**\n"
+                    f"[{title}](<{link}>)\n"
+                    f"🕒 `{parse_time(pub)}`\n"
                     f"🧠 此事件已整合 1 則新聞來源"
                 )
 
-                msg_id = send_message(content)
-                thread_id = create_thread(msg_id, show_title)
+                resp = send_message(msg, thread_name=title[:50])
+                thread_id = resp["thread"]["id"]
 
-                seen[fp] = {"thread_id": thread_id, "count": 1}
+                seen[fp] = {
+                    "thread_id": thread_id,
+                    "count": 1,
+                    "created": datetime.utcnow().isoformat()
+                }
+
+            # === 同事件更新 ===
             else:
                 seen[fp]["count"] += 1
-                send_to_thread(
-                    seen[fp]["thread_id"],
-                    f"🔄 更新來源（第 {seen[fp]['count']} 則）\n[{show_title}](<{link}>)"
+                count = seen[fp]["count"]
+
+                msg = (
+                    f"🔄 **事件更新**（第 {count} 則來源）\n"
+                    f"[{title}](<{link}>)\n"
+                    f"🕒 `{parse_time(pub)}`"
+                )
+
+                send_message(
+                    msg,
+                    thread_id=seen[fp]["thread_id"]
                 )
 
     save_seen(seen)
 
+# =========================
+# 入口
+# =========================
 if __name__ == "__main__":
     run()
