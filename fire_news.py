@@ -130,11 +130,15 @@ def run_realtime():
     ]
 
     now = datetime.now()
+    new_event_count = 0  # 1. 新增計數器
+    
     for url in feeds:
         try:
             res = requests.get(url, headers=HEADERS, timeout=15)
             soup = BeautifulSoup(res.content, "xml")
-            for item in soup.find_all("item")[:30]:
+            items = soup.find_all("item")
+            
+            for item in items[:30]:
                 title = item.title.text
                 link = item.link.text
                 pub = item.pubDate.text if item.pubDate else ""
@@ -143,7 +147,6 @@ def run_realtime():
 
                 fp = incident_fingerprint(title)
                 
-                # 永久過濾：已在紀錄中的事件不再發送
                 if fp in SEEN_EVENTS:
                     print(f"跳過相似事件: {title[:20]}...")
                     continue
@@ -158,8 +161,16 @@ def run_realtime():
                 requests.post(webhook, json={"content": msg}, timeout=10)
                 SEEN_EVENTS[fp] = now.isoformat()
                 SUMMARY.add(fp)
+                new_event_count += 1 # 2. 每發送一則就增加計數
+                
         except Exception as e:
-            print(f"抓取錯誤: {e}") # 此處已補齊修正 SyntaxError
+            print(f"抓取錯誤: {e}")
+
+    # 3. 核心邏輯：如果掃描完畢且計數器仍為 0，發送狀態訊息
+    if new_event_count == 0:
+        status_msg = f"✅ **系統監測正常**\n🔍 掃描結果：系統設定的前 12 個小時，無新事件發生。"
+        requests.post(WEBHOOK_GENERAL, json={"content": status_msg}, timeout=10)
+        print("今日無新事件，已發送狀態訊息。")
 
     save_seen(SEEN_EVENTS)
     save_set(SUMMARY_FILE, SUMMARY)
