@@ -2,7 +2,6 @@ name: Fire News Bot
 
 on:
   schedule:
-    # 每 2 小時
     - cron: '47 */2 * * *'
   workflow_dispatch:
 
@@ -27,4 +26,4 @@ jobs:
           DISCORD_WEBHOOK_GENERAL: ${{ secrets.DISCORD_WEBHOOK }}
           DISCORD_WEBHOOK_CHEMICAL: ${{ secrets.DISCORD_WEBHOOK }}
           DISCORD_WEBHOOK_ENERGY: ${{ secrets.DISCORD_WEBHOOK }}
-        run: python fire-news.py
+        run: python fire_news.py
