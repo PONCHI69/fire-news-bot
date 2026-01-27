@@ -4,7 +4,7 @@ import hashlib
 import os
 import re
 import json
-from datetime import datetime, timedelta
+from datetime import datetime
 
 WEBHOOK = os.getenv("DISCORD_WEBHOOK_GENERAL")
 SEEN_FILE = "seen_events.json"
@@ -78,32 +78,10 @@ def translate(text):
     except:
         return text
 
-# ---------- Discord ----------
-
 def send_message(content):
-    r = requests.post(
-        WEBHOOK,
-        params={"wait": "true"},
-        json={"content": content},
-        timeout=10
-    )
-    r.raise_for_status()
-    return r.json()["id"]
-
-def create_thread(message_id, name):
-    url = f"{WEBHOOK}/messages/{message_id}/threads"
-    r = requests.post(
-        url,
-        json={"name": name[:90]},
-        timeout=10
-    )
-    r.raise_for_status()
-    return r.json()["id"]
-
-def send_to_thread(thread_id, content):
     requests.post(
         WEBHOOK,
-        json={"content": content, "thread_id": thread_id},
+        json={"content": content},
         timeout=10
     )
 
@@ -116,6 +94,7 @@ def run():
     ]
 
     seen = load_seen()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     for feed in feeds:
         res = requests.get(feed, headers=HEADERS)
@@ -133,22 +112,23 @@ def run():
             show_title = title if flag == "🇹🇼" else translate(title)
 
             if fp not in seen:
-                content = (
+                seen[fp] = {
+                    "count": 1,
+                    "time": now,
+                    "title": show_title,
+                    "link": link
+                }
+
+                msg = (
                     f"{flag} **工業事故通報**\n"
                     f"[{show_title}](<{link}>)\n"
-                    f"🧠 此事件已整合 1 則新聞來源"
+                    f"🧠 此事件已整合 1 則新聞來源\n"
+                    f"🕒 {now}"
                 )
+                send_message(msg)
 
-                msg_id = send_message(content)
-                thread_id = create_thread(msg_id, show_title)
-
-                seen[fp] = {"thread_id": thread_id, "count": 1}
             else:
                 seen[fp]["count"] += 1
-                send_to_thread(
-                    seen[fp]["thread_id"],
-                    f"🔄 更新來源（第 {seen[fp]['count']} 則）\n[{show_title}](<{link}>)"
-                )
 
     save_seen(seen)
 
