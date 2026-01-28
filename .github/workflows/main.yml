@@ -2,7 +2,7 @@ name: Fire News Bot
 
 on:
   schedule:
-    # 每 2 小時執行一次（UTC）
+    # 每 2 小時
     - cron: '47 */2 * * *'
   workflow_dispatch:
 
@@ -11,26 +11,20 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ 取得原始碼
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v3
 
-      # 2️⃣ 設定 Python 環境
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
-      # 3️⃣ 安裝必要套件
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install requests beautifulsoup4 lxml
+        run: pip install requests beautifulsoup4 lxml
 
-      # 4️⃣ 執行 fire_news.py
       - name: Run Fire News Bot
         env:
-          DISCORD_WEBHOOK_GENERAL: ${{ secrets.DISCORD_WEBHOOK_GENERAL }}
-          MODE: summary   # ⭐ 為未來雙 job / 雙模式保留
-        run: |
-          python fire_news.py
+          DISCORD_WEBHOOK_GENERAL: ${{ secrets.DISCORD_WEBHOOK }}
+          DISCORD_WEBHOOK_CHEMICAL: ${{ secrets.DISCORD_WEBHOOK }}
+          DISCORD_WEBHOOK_ENERGY: ${{ secrets.DISCORD_WEBHOOK }}
+        run: python fire_news.py
