@@ -31,5 +31,6 @@ jobs:
       - name: Run Fire News Bot
         env:
           DISCORD_WEBHOOK_GENERAL: ${{ secrets.DISCORD_WEBHOOK_GENERAL }}
+          MODE: summary   # ⭐ 為未來雙 job / 雙模式保留
         run: |
           python fire_news.py
