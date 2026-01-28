@@ -3,146 +3,163 @@ from bs4 import BeautifulSoup
 import hashlib
 import os
 import re
+import json
 from datetime import datetime, timedelta
 
 # =========================
-# Discord Webhook
+# Webhooks
 # =========================
-WEBHOOK_GENERAL = os.getenv("DISCORD_WEBHOOK_GENERAL")
+WEBHOOK_GENERAL = os.getenv("DISCORD_WEBHOOK_GENERAL", "")
+WEBHOOK_CHEMICAL = os.getenv("DISCORD_WEBHOOK_CHEMICAL", "")
+WEBHOOK_ENERGY = os.getenv("DISCORD_WEBHOOK_ENERGY", "")
+
 HEADERS = {"User-Agent": "Mozilla/5.0"}
+SEEN_FILE = "seen_events.json"
 
 # =========================
 # 關鍵字
 # =========================
-FIRE = ["fire", "blaze", "火災", "火警", "起火"]
+FIRE = ["fire", "blaze", "火災", "火警", "起火", "失火"]
 EXPLOSION = ["explosion", "爆炸", "氣爆"]
 
-EXCLUDE = [
-    "演練", "演習", "訓練", "simulation", "drill",
-    "股市", "財報", "政策", "宣導"
+FALSE_FIRE_PHRASES = [
+    "under fire",
+    "political fire",
+    "fire up",
+    "fiery speech",
+    "火力全開",
+    "輿論抨擊",
 ]
 
-CAUSE_PATTERNS = {
-    "⚡ 電氣系統": ["electrical", "short circuit", "配電", "電線"],
-    "🧯 瓦斯／氣體": ["gas leak", "瓦斯", "氣體洩漏"],
-    "⚙️ 設備故障": ["equipment failure", "設備故障"],
-    "👤 人為操作": ["human error", "操作不當"],
-}
+EXCLUDE = [
+    "演練", "模擬", "演習", "訓練", "simulation", "drill",
+    "policy", "decision", "delay", "股市", "財報"
+]
+
+CHEMICAL = ["chemical", "petrochemical", "refinery", "石化", "化工", "煉油"]
+ENERGY = ["power", "plant", "電廠", "變電所", "儲能", "鋰電池"]
 
 COUNTRY_MAP = {
+    "uk": "🇬🇧",
     "japan": "🇯🇵",
-    "china": "🇨🇳",
-    "taiwan": "🇹🇼",
     "us": "🇺🇸",
-    "germany": "🇩🇪",
+    "china": "🇨🇳",
+    "taiwan": "🇹🇼"
 }
 
 # =========================
 # 工具
 # =========================
-def sha(text):
-    return hashlib.sha256(text.encode()).hexdigest()
+def safe_post(webhook, payload):
+    if not webhook or not webhook.startswith("https://"):
+        print("⚠️ Webhook 未設定，略過送出")
+        return None
+    return requests.post(webhook, json=payload, timeout=10)
 
-def detect_country(text):
-    t = text.lower()
-    for k, v in COUNTRY_MAP.items():
-        if k in t:
-            return v
-    return "🌍"
+def load_seen():
+    if not os.path.exists(SEEN_FILE):
+        return {}
+    with open(SEEN_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
 
-def is_incident(title):
+def save_seen(data):
+    with open(SEEN_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+def translate_to_zh(text):
+    try:
+        r = requests.get(
+            "https://translate.googleapis.com/translate_a/single",
+            params={"client": "gtx", "sl": "auto", "tl": "zh-TW", "dt": "t", "q": text},
+            timeout=8
+        )
+        return r.json()[0][0][0]
+    except:
+        return text
+
+def is_real_fire(title):
     t = title.lower()
-    if any(k in t for k in EXCLUDE):
+    if any(p in t for p in FALSE_FIRE_PHRASES):
+        return False
+    if any(e in t for e in EXCLUDE):
         return False
     return any(k in t for k in FIRE + EXPLOSION)
 
-# =========================
-# 擴散搜尋
-# =========================
-def expand_search(keyword):
-    q = keyword.replace(" ", "+")
-    url = f"https://news.google.com/rss/search?q={q}+fire+OR+explosion&hl=en"
-    res = requests.get(url, headers=HEADERS, timeout=10)
-    soup = BeautifulSoup(res.content, "xml")
-    titles = []
-    for item in soup.find_all("item")[:8]:
-        titles.append(item.title.text.lower())
-    return titles
+def classify_channel(title):
+    t = title.lower()
+    if any(k in t for k in CHEMICAL):
+        return "CHEMICAL"
+    if any(k in t for k in ENERGY):
+        return "ENERGY"
+    return "GENERAL"
 
-# =========================
-# 原因推論
-# =========================
-def infer_cause(texts):
-    score = {k: 0 for k in CAUSE_PATTERNS}
-    for t in texts:
-        for cause, kws in CAUSE_PATTERNS.items():
-            if any(k in t for k in kws):
-                score[cause] += 1
+def webhook_by_channel(ch):
+    return {
+        "CHEMICAL": WEBHOOK_CHEMICAL,
+        "ENERGY": WEBHOOK_ENERGY,
+        "GENERAL": WEBHOOK_GENERAL
+    }.get(ch, WEBHOOK_GENERAL)
 
-    ranked = sorted(score.items(), key=lambda x: x[1], reverse=True)
-    if ranked[0][1] == 0:
-        return "❓ 尚無足夠資訊研判原因"
-
-    confidence = "高" if ranked[0][1] >= 3 else "中"
-    return f"{ranked[0][0]}（信心：{confidence}，非官方）"
-
-# =========================
-# Discord Thread
-# =========================
-def post_and_create_thread(content, title):
-    r = requests.post(WEBHOOK_GENERAL, json={"content": content}, timeout=10)
-    r.raise_for_status()
-    msg_id = r.json()["id"]
-
-    thread_url = f"{WEBHOOK_GENERAL}/messages/{msg_id}/threads"
-    r2 = requests.post(thread_url, json={"name": title[:90]}, timeout=10)
-    r2.raise_for_status()
-    return r2.json()["id"]
-
-def post_thread(thread_id, content):
-    url = f"{WEBHOOK_GENERAL}?thread_id={thread_id}"
-    requests.post(url, json={"content": content}, timeout=10)
+def fingerprint(title):
+    core = re.sub(r"[^a-z\u4e00-\u9fff]", "", title.lower())
+    return hashlib.sha256(core[:60].encode()).hexdigest()
 
 # =========================
 # 主流程
 # =========================
 def run():
-    feed = "https://news.google.com/rss/search?q=industrial+fire+OR+explosion&hl=en"
-    res = requests.get(feed, headers=HEADERS, timeout=10)
-    soup = BeautifulSoup(res.content, "xml")
+    seen = load_seen()
+    now = datetime.utcnow().isoformat()
+    feeds = [
+        "https://news.google.com/rss/search?q=(factory+OR+industrial+OR+refinery)+(fire+OR+explosion)+when:12h&hl=en&gl=US&ceid=US:en"
+    ]
 
     events = {}
 
-    for item in soup.find_all("item")[:30]:
-        title = item.title.text
-        link = item.link.text
-        if not is_incident(title):
-            continue
+    for url in feeds:
+        soup = BeautifulSoup(requests.get(url, headers=HEADERS).content, "xml")
+        for item in soup.find_all("item")[:40]:
+            title = item.title.text
+            link = item.link.text
 
-        fp = sha(title.lower())
-        events.setdefault(fp, []).append((title, link))
+            if not is_real_fire(title):
+                continue
 
-    for ev in events.values():
-        main_title, link = ev[0]
-        flag = detect_country(main_title)
+            fp = fingerprint(title)
+            if fp in seen:
+                continue
 
-        expanded = expand_search(main_title)
-        cause = infer_cause([main_title.lower()] + expanded)
+            events.setdefault(fp, {"titles": [], "link": link})
+            events[fp]["titles"].append(title)
 
-        header = (
-            f"{flag} **全球工業事故通報**\n"
-            f"[{main_title}](<{link}>)\n"
-            f"🧠 整合 `{len(ev) + len(expanded)}` 則來源"
+    if not events:
+        safe_post(WEBHOOK_GENERAL, {
+            "content": "✅ **系統監測正常**\n過去 12 小時內無新增火災 / 爆炸事故。"
+        })
+        return
+
+    for fp, data in events.items():
+        main_title = data["titles"][0]
+        zh = translate_to_zh(main_title)
+        channel = classify_channel(main_title)
+        webhook = webhook_by_channel(channel)
+
+        content = (
+            f"🔥 **全球工業事故通報**\n"
+            f"分類：`{channel}`\n"
+            f"{main_title}\n（{zh}）\n"
+            f"🧠 此事件已整合 `{len(data['titles'])}` 則新聞來源\n"
+            f"{data['link']}"
         )
 
-        thread_id = post_and_create_thread(header, main_title)
+        safe_post(webhook, {
+            "content": content,
+            "thread_name": zh[:80]
+        })
 
-        detail = (
-            f"🔍 **事故原因初步分析**\n"
-            f"{cause}\n\n"
-            f"📌 系統將持續追蹤更新"
-        )
-        post_thread(thread_id, detail)
+        seen[fp] = now
+
+    save_seen(seen)
 
 if __name__ == "__main__":
     run()
