@@ -9,9 +9,9 @@ from datetime import datetime, timedelta
 # =========================
 # Webhooks
 # =========================
-WEBHOOK_GENERAL = os.getenv("DISCORD_WEBHOOK_GENERAL", "")
-WEBHOOK_CHEMICAL = os.getenv("DISCORD_WEBHOOK_CHEMICAL", "")
-WEBHOOK_ENERGY = os.getenv("DISCORD_WEBHOOK_ENERGY", "")
+WEBHOOK_GENERAL = os.getenv("DISCORD_WEBHOOK_GENERAL")
+WEBHOOK_CHEMICAL = os.getenv("DISCORD_WEBHOOK_CHEMICAL")
+WEBHOOK_ENERGY = os.getenv("DISCORD_WEBHOOK_ENERGY")
 
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 SEEN_FILE = "seen_events.json"
