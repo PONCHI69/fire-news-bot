@@ -25,14 +25,13 @@ EXPLOSION = ["explosion", "爆炸", "氣爆", "爆燃"]
 CHEMICAL = ["chemical", "petrochemical", "refinery", "石化", "化工", "煉油"]
 ENERGY = ["power", "plant", "電廠", "變電所", "儲能", "太陽能", "鋰電池"]
 TECH = ["semiconductor", "electronics", "wafer", "半導體", "電子"]
-# 擴充：加入大規模民宅相關詞彙
-BUILDING = ["building", "apartment", "skyscraper", "大樓", "住宅", "公寓", "民宅", "社區", "neighborhood"]
+BUILDING = ["building", "apartment", "skyscraper", "大樓", "住宅", "公寓", "民宅", "社區", "neighborhood", "home", "house"]
 
-# 排除雜訊
+# 強化排除：過濾行政、法律、趨勢、非現場新聞
 EXCLUDE = [
     "演練", "模擬", "演習", "訓練", "simulation", "drill", "exercise", "training",
     "股市", "政策", "調查", "委員會", "報告", "原因仍未確定", "起火成因", "宣導", 
-    "housing", "房屋", "平安符", "點燃市場", "點燃蘋果"
+    "housing", "房屋", "平安符", "點燃市場", "點燃蘋果", "order", "executive", "行政命令", "批准", "法案"
 ]
 
 FIRE_METAPHOR = ["under fire", "firestorm", "fiery debate", "political fire", "fire back"]
@@ -42,15 +41,15 @@ REAL_FIRE_CONTEXT = [
     "exploded", "blast", "detonated", "massive fire", "destroyed"
 ]
 
-# 擴充：加入民宅設施關鍵字
 FACILITY_KEYWORDS = [
     "factory", "plant", "refinery", "warehouse", "home", "house", "residential",
-    "工廠", "廠房", "煉油廠", "食品廠", "餅乾", "民宅", "住宅", "社區"
+    "工廠", "廠房", "煉油廠", "食品廠", "餅乾", "民宅", "住宅", "社區", "nursery"
 ]
 
 COUNTRY_MAP = {
     "greece": "🇬🇷", "japan": "🇯🇵", "us": "🇺🇸", "u.s.": "🇺🇸", "america": "🇺🇸",
-    "uk": "🇬🇧", "germany": "🇩🇪", "china": "🇨🇳", "taiwan": "🇹🇼", "brazil": "🇧🇷"
+    "uk": "🇬🇧", "germany": "🇩🇪", "china": "🇨🇳", "taiwan": "🇹🇼", "brazil": "🇧🇷",
+    "norway": "🇳🇴", "trikala": "🇬🇷"
 }
 
 # =========================
@@ -95,38 +94,34 @@ def webhook_by_channel(ch):
     return mapping.get(ch, WEBHOOK_GENERAL)
 
 def detect_casualties(titles):
-    """偵測標題中是否含有傷亡關鍵字"""
     combined_text = " ".join(titles).lower()
-    # 匹配英文死傷或中文死傷
     if re.search(r"(\d+ (dead|kill|die|injure|victim)|(\d+)人(死|傷|亡|命))", combined_text):
         return "🚨 "
     return ""
 
-# =========================
-# 事故判斷與指紋提取
-# =========================
 def is_real_incident(title: str) -> bool:
     t = title.lower()
     if any(p in t for p in FIRE_METAPHOR): return False
     if any(k in t for k in EXCLUDE): return False
-    
     has_event_word = any(k in t for k in FIRE + EXPLOSION)
     has_facility = any(k in t for k in FACILITY_KEYWORDS)
     has_real_context = (
         any(k in t for k in REAL_FIRE_CONTEXT)
-        or any(k in t for k in ["火災", "起火", "失火", "爆炸", "氣爆", "燒毀"])
+        or any(k in t for k in ["火災", "起火", "失火", "爆炸", "氣爆", "燒毀", "火警"])
     )
     return has_event_word and has_facility and has_real_context
 
 def extract_event_fingerprint(title):
-    """提取事故核心特徵（移除變動數字以防範重複通報）"""
+    """提取事故指紋：移除數字與噪音，強化跨次去重"""
     t = title.lower()
-    event_type = "fire" if any(k in t for k in FIRE) else "explosion"
-    facility = next((k for k in FACILITY_KEYWORDS if k in t), "site")
+    # 移除標題結尾的媒體名稱 (通常在最後一個 - 或 | 之後)
+    t = re.split(r' - | \| ', t)[0]
     location = next((k for k in COUNTRY_MAP.keys() if k in t), "global")
-    # 核心優化：移除所有數字，確保「300棟房屋」與「400棟房屋」指紋相同
+    facility = next((k for k in FACILITY_KEYWORDS if k in t), "site")
+    # 移除所有數字避免指紋變動
     t_clean = re.sub(r"\d+", "", t)
-    core = f"{location}-{facility}-{event_type}"
+    t_clean = re.sub(r"[^a-z\u4e00-\u9fff]", "", t_clean)
+    core = f"{location}-{facility}-{t_clean[:10]}"
     return hashlib.sha256(core.encode("utf-8")).hexdigest()
 
 # =========================
@@ -135,27 +130,24 @@ def extract_event_fingerprint(title):
 def run_realtime():
     seen_events = load_seen()
     now = datetime.now()
+    event_pool = {}
 
     feeds = [
-        # 原有工業搜尋
         "https://news.google.com/rss/search?q=(factory+OR+industrial+OR+refinery)+(fire+OR+explosion)+when:12h&hl=en&gl=US&ceid=US:en",
         "https://news.google.com/rss/search?q=(工廠+OR+廠房+OR+食品廠)+(火災+OR+爆炸)+when:12h&hl=zh-TW&gl=TW&ceid=TW:zh-tw",
-        # 新增：大規模住宅火災搜尋
         "https://news.google.com/rss/search?q=(fire+OR+blaze)+(massive+OR+destroyed+OR+homes)+when:12h&hl=en&gl=US&ceid=US:en"
     ]
-
-    event_pool = {}
 
     for url in feeds:
         try:
             res = requests.get(url, headers=HEADERS, timeout=15)
             soup = BeautifulSoup(res.content, "xml")
-
             for item in soup.find_all("item")[:40]:
                 title = item.title.text
                 if not is_real_incident(title): continue
 
                 fp = extract_event_fingerprint(title)
+                # 跨次去重：如果檔案裡已經有這組指紋，代表之前發過了
                 if fp in seen_events: continue
 
                 if fp not in event_pool:
@@ -167,18 +159,16 @@ def run_realtime():
                 else:
                     if title not in event_pool[fp]["titles"]:
                         event_pool[fp]["titles"].append(title)
-
         except Exception as e:
-            print(f"RSS 讀取錯誤: {e}")
+            print(f"RSS 錯誤: {e}")
 
     sent = 0
     for fp, data in event_pool.items():
-        # 選擇中間長度的標題作為代表
-        main_title = sorted(data["titles"], key=len)[len(data["titles"]) // 2]
+        main_title_raw = data["titles"][0]
+        # 過濾主標題尾部媒體名
+        main_title = re.split(r' - | \| ', main_title_raw)[0]
         
-        # 功能：偵測傷亡警報標記
         alert_prefix = detect_casualties(data["titles"])
-        
         flag = detect_country(main_title)
         channel = classify_channel(main_title)
         webhook = webhook_by_channel(channel)
@@ -189,10 +179,17 @@ def run_realtime():
             else f"{main_title}\n（{translate_to_zh(main_title)}）"
         )
 
-        # 功能：產生多來源簡化清單 (顯示前3則)
-        others = data["titles"][1:4]
-        source_list = "\n".join([f"• {t[:40]}..." for t in others])
-        source_info = f"\n\n🔗 **相關報導**：\n{source_list}" if others else ""
+        # 相關報導白字邏輯：移除與主標題太相似的項目
+        others = []
+        main_norm = re.sub(r"[^a-zA-Z\u4e00-\u9fff]", "", main_title).lower()
+        for t in data["titles"][1:5]:
+            t_clean = re.split(r' - | \| ', t)[0]
+            t_norm = re.sub(r"[^a-zA-Z\u4e00-\u9fff]", "", t_clean).lower()
+            # 如果標題重合度不高才顯示
+            if t_norm[:20] != main_norm[:20]:
+                others.append(t_clean)
+
+        source_info = f"\n\n🔗 **相關報導**：\n" + "\n".join([f"• {t[:50]}..." for t in others]) if others else ""
 
         msg = (
             f"{alert_prefix}{flag} **全球重大災情通報**\n"
@@ -206,6 +203,7 @@ def run_realtime():
         seen_events[fp] = now.isoformat()
         sent += 1
 
+    # 修正心跳邏輯：如果掃描完畢完全沒有「新指紋」才發送
     if sent == 0:
         requests.post(
             WEBHOOK_GENERAL,
